@@ -1,6 +1,6 @@
 Project Name: Herfa
 
-Introduction
+Introduction:
 This mobile application is a specialized platform for home services and craftsmanship in Egypt. It is developed as a graduation project for the Digital Egypt Builders Initiative (DEBI). The app bridges the gap between verified service providers and household clients, ensuring easy access to maintenance professionals in various regions.
 
 Objectives

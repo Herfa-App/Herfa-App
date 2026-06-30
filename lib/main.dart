@@ -20,8 +20,11 @@ import 'screens/shared/chat_screen.dart';
 import 'screens/shared/price_guide_screen.dart';
 import 'screens/shared/profile_screen.dart';
 
+import 'package:intl/date_symbol_data_local.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await initializeDateFormatting('ar', null);
   
   // Set preferred orientations
   await SystemChrome.setPreferredOrientations(

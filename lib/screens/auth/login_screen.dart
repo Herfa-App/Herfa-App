@@ -1,19 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
-import '../../core/widgets/shared_widgets.dart';
+import '../../core/providers/auth_provider.dart';
+import '../../core/services/supabase_service.dart';
 import '../auth/role_selection_screen.dart';
-import '../auth/register_screen.dart';
 import '../customer/customer_home_screen.dart';
 
-/// Screen 2 — Login Screen (تسجيل الدخول)
-/// Analysis:
-/// - Light grey background (#F5F6FA)
-/// - Top: tools icon in navy circle, "Herfa" bold, subtitle Arabic
-/// - White card: title + subtitle, email field, password field w/ forgot link
-/// - Dark blue CTA button, divider "أو عبر", Google button
-/// - Bottom: "الدخول كزائر" link, register link
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -22,7 +16,84 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
   bool _obscurePassword = true;
+  bool _isLoading = false;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleLogin() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+
+    if (email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('يرجى إدخال البريد الإلكتروني وكلمة السر', textAlign: TextAlign.right)),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      final auth = context.read<AuthProvider>();
+      await auth.login(email: email, password: password);
+
+      if (mounted) {
+        if (auth.status == AuthStatus.authenticated && auth.user != null) {
+          final role = auth.user!.userMetadata?['role'] ?? 'customer';
+          if (role == 'provider') {
+            Navigator.pushReplacementNamed(context, '/pro-home');
+          } else {
+            Navigator.pushReplacementNamed(context, '/home');
+          }
+        } else if (auth.status == AuthStatus.needsVerification) {
+          Navigator.pushReplacementNamed(context, '/verify');
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('فشل تسجيل الدخول: ${e.toString()}', textAlign: TextAlign.right)),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _handleForgotPassword() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('يرجى كتابة البريد الإلكتروني أولاً لإرسال رابط إعادة التعيين', textAlign: TextAlign.right)),
+      );
+      return;
+    }
+
+    try {
+      await SupabaseService.instance.resetPassword(email);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم إرسال رابط إعادة تعيين كلمة السر إلى بريدك الإلكتروني', textAlign: TextAlign.right)),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('فشل إرسال الرابط: ${e.toString()}', textAlign: TextAlign.right)),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -37,20 +108,11 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Column(
                 children: [
                   const SizedBox(height: 40),
-
-                  // ── Brand Header ──────────────────────────────────────
                   _buildBrandHeader(),
-
                   const SizedBox(height: 28),
-
-                  // ── Login Card ────────────────────────────────────────
                   _buildLoginCard(context),
-
                   const SizedBox(height: 20),
-
-                  // ── Bottom links ──────────────────────────────────────
                   _buildBottomLinks(context),
-
                   const SizedBox(height: 32),
                 ],
               ),
@@ -64,7 +126,6 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget _buildBrandHeader() {
     return Column(
       children: [
-        // Tools icon in navy circle
         Container(
           width: 72,
           height: 72,
@@ -79,8 +140,6 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
         const SizedBox(height: 14),
-
-        // "Herfa" brand name
         Text(
           'Herfa',
           style: GoogleFonts.cairo(
@@ -91,7 +150,6 @@ class _LoginScreenState extends State<LoginScreen> {
           )
         ),
         const SizedBox(height: 6),
-
         Text(
           'بوابة الحرفيين والمهنيين',
           style: GoogleFonts.cairo(
@@ -122,7 +180,6 @@ class _LoginScreenState extends State<LoginScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          // Title
           Text(
             'تسجيل الدخول',
             style: AppTextStyles.headlineLarge,
@@ -134,24 +191,21 @@ class _LoginScreenState extends State<LoginScreen> {
             style: AppTextStyles.bodyMedium,
             textAlign: TextAlign.right,
           ),
-
           const SizedBox(height: 24),
 
-          // Email field label
+          // Email
           Text(
             'البريد الإلكتروني',
             style: AppTextStyles.titleSmall,
             textAlign: TextAlign.right,
           ),
           const SizedBox(height: 8),
-
-          // Email input
           TextField(
+            controller: _emailController,
             keyboardType: TextInputType.emailAddress,
             textAlign: TextAlign.right,
             textDirection: TextDirection.ltr,
-            style: AppTextStyles.bodyMedium
-                .copyWith(color: AppColors.textPrimary),
+            style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textPrimary),
             decoration: InputDecoration(
               hintText: 'example@herfa.com',
               hintStyle: AppTextStyles.hintStyle,
@@ -173,22 +227,19 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide:
-                    const BorderSide(color: AppColors.primary, width: 1.5),
+                borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
               ),
-              contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16, vertical: 14),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             ),
           ),
-
           const SizedBox(height: 20),
 
-          // Password row: label + forgot
+          // Password
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               GestureDetector(
-                onTap: () {},
+                onTap: _handleForgotPassword,
                 child: Text(
                   'نسيت كلمة السر؟',
                   style: GoogleFonts.cairo(
@@ -207,20 +258,17 @@ class _LoginScreenState extends State<LoginScreen> {
             ],
           ),
           const SizedBox(height: 8),
-
-          // Password input
           TextField(
+            controller: _passwordController,
             obscureText: _obscurePassword,
             textAlign: TextAlign.right,
             textDirection: TextDirection.rtl,
-            style: AppTextStyles.bodyMedium
-                .copyWith(color: AppColors.textPrimary),
+            style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textPrimary),
             decoration: InputDecoration(
               hintText: '••••••••',
               hintStyle: AppTextStyles.hintStyle,
               suffixIcon: GestureDetector(
-                onTap: () =>
-                    setState(() => _obscurePassword = !_obscurePassword),
+                onTap: () => setState(() => _obscurePassword = !_obscurePassword),
                 child: Icon(
                   _obscurePassword ? Icons.lock_outline : Icons.lock_open,
                   color: AppColors.textLight,
@@ -239,25 +287,16 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide:
-                    const BorderSide(color: AppColors.primary, width: 1.5),
+                borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
               ),
-              contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16, vertical: 14),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             ),
           ),
-
           const SizedBox(height: 24),
 
           // Login CTA button
           GestureDetector(
-            onTap: () {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                    builder: (_) => const CustomerHomeScreen()),
-              );
-            },
+            onTap: _isLoading ? null : _handleLogin,
             child: Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 16),
@@ -268,49 +307,43 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.login,
-                      color: AppColors.textWhite, size: 20),
-                  const SizedBox(width: 8),
-                  Text(
-                    'تسجيل الدخول',
-                    style: AppTextStyles.labelLarge,
-                  ),
+                  if (_isLoading)
+                    const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(color: AppColors.textWhite, strokeWidth: 2),
+                    )
+                  else ...[
+                    const Icon(Icons.login, color: AppColors.textWhite, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'تسجيل الدخول',
+                      style: AppTextStyles.labelLarge,
+                    ),
+                  ]
                 ],
               ),
             ),
           ),
-
           const SizedBox(height: 20),
 
           // Divider "أو عبر"
           Row(
             children: [
-              Expanded(
-                child: Divider(color: AppColors.border, thickness: 1),
-              ),
+              Expanded(child: Divider(color: AppColors.border, thickness: 1)),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Text(
-                  'أو عبر',
-                  style: AppTextStyles.bodySmall,
-                ),
+                child: Text('أو عبر', style: AppTextStyles.bodySmall),
               ),
-              Expanded(
-                child: Divider(color: AppColors.border, thickness: 1),
-              ),
+              Expanded(child: Divider(color: AppColors.border, thickness: 1)),
             ],
           ),
-
           const SizedBox(height: 16),
 
-          // Google login button
+          // Google login button (mocked for demo)
           GestureDetector(
             onTap: () {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                    builder: (_) => const CustomerHomeScreen()),
-              );
+              Navigator.pushReplacementNamed(context, '/home');
             },
             child: Container(
               width: double.infinity,
@@ -332,7 +365,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   const SizedBox(width: 10),
-                  // Google icon placeholder
                   Container(
                     width: 24,
                     height: 24,
@@ -340,8 +372,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       color: AppColors.backgroundGrey,
                       borderRadius: BorderRadius.circular(4),
                     ),
-                    child: const Icon(Icons.g_mobiledata,
-                        size: 18, color: AppColors.primary),
+                    child: const Icon(Icons.g_mobiledata, size: 18, color: AppColors.primary),
                   ),
                 ],
               ),
@@ -358,10 +389,7 @@ class _LoginScreenState extends State<LoginScreen> {
         // Guest link
         GestureDetector(
           onTap: () {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (_) => const CustomerHomeScreen()),
-            );
+            Navigator.pushReplacementNamed(context, '/home');
           },
           child: Text(
             'الدخول كزائر',
@@ -382,11 +410,7 @@ class _LoginScreenState extends State<LoginScreen> {
           children: [
             GestureDetector(
               onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (_) => const RoleSelectionScreen()),
-                );
+                Navigator.pushNamed(context, '/role');
               },
               child: Text(
                 'أنشئ حسابك الآن',

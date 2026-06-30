@@ -278,7 +278,7 @@ class _PriceGuideScreenState extends State<PriceGuideScreen> {
             style: GoogleFonts.cairo(fontSize: 18, fontWeight: FontWeight.w800,
                 color: AppColors.textWhite)),
         const SizedBox(height: 6),
-        Text('ارفع صورة المشكلة وسيقدم الحرفيون عروض أسعار خلال دقائق',
+        Text('اطلب الخدمة الآن وسيقدم الحرفيون عروض أسعار خلال دقائق',
             style: GoogleFonts.cairo(fontSize: 12,
                 color: AppColors.textWhite.withOpacity(0.85), height: 1.5),
             textAlign: TextAlign.center, textDirection: TextDirection.rtl),

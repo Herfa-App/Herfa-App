@@ -1,24 +1,85 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
-import '../customer/customer_home_screen.dart';
+import '../../core/providers/auth_provider.dart';
 
-/// Screen 5 — Email Verification Screen (تأكيد البريد الإلكتروني)
-/// Analysis:
-/// - Light background
-/// - Top header: back arrow (→), title "تأكيد البريد الإلكتروني"
-/// - Illustration: white rounded card with envelope icon, orange badge
-/// - Title "تأكد من بريدك الإلكتروني"
-/// - Subtitle paragraph
-/// - "إعادة إرسال الرابط" primary button
-/// - "تغيير البريد الإلكتروني" link row
-/// - 3 dots indicator at bottom
-class EmailVerificationScreen extends StatelessWidget {
+class EmailVerificationScreen extends StatefulWidget {
   const EmailVerificationScreen({super.key});
 
   @override
+  State<EmailVerificationScreen> createState() => _EmailVerificationScreenState();
+}
+
+class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
+  bool _isResending = false;
+  bool _isChecking = false;
+
+  Future<void> _handleResend(String email) async {
+    setState(() => _isResending = true);
+    try {
+      await Supabase.instance.client.auth.resend(
+        type: OtpType.signup,
+        email: email,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم إعادة إرسال رابط التحقق بنجاح', textAlign: TextAlign.right)),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('فشل إرسال الرابط: ${e.toString()}', textAlign: TextAlign.right)),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isResending = false);
+      }
+    }
+  }
+
+  Future<void> _handleCheckStatus() async {
+    setState(() => _isChecking = true);
+    try {
+      final auth = context.read<AuthProvider>();
+      await auth.checkVerificationStatus();
+
+      if (mounted) {
+        if (auth.status == AuthStatus.authenticated && auth.user != null) {
+          final role = auth.user!.userMetadata?['role'] ?? 'customer';
+          if (role == 'provider') {
+            Navigator.pushNamedAndRemoveUntil(context, '/pro-setup', (route) => false);
+          } else {
+            Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
+          }
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('البريد الإلكتروني لم يتم تأكيده بعد. يرجى مراجعة بريدك.', textAlign: TextAlign.right)),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('حدث خطأ أثناء التحقق: ${e.toString()}', textAlign: TextAlign.right)),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isChecking = false);
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    final email = auth.user?.email ?? '';
+
     return Scaffold(
       backgroundColor: AppColors.backgroundWhite,
       body: SafeArea(
@@ -26,22 +87,16 @@ class EmailVerificationScreen extends StatelessWidget {
           textDirection: TextDirection.rtl,
           child: Column(
             children: [
-              // ── Header ──
               _buildHeader(context),
-
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.symmetric(horizontal: 28),
                   child: Column(
                     children: [
                       const SizedBox(height: 32),
-
-                      // ── Mail Illustration ──
                       _buildMailIllustration(),
-
                       const SizedBox(height: 48),
 
-                      // ── Title ──
                       Text(
                         'تأكد من بريدك\nالإلكتروني',
                         style: AppTextStyles.displayMedium.copyWith(
@@ -50,52 +105,77 @@ class EmailVerificationScreen extends StatelessWidget {
                         ),
                         textAlign: TextAlign.center,
                       ),
-
                       const SizedBox(height: 16),
 
-                      // ── Subtitle ──
                       Text(
-                        'تم إرسال رابط التحقق إلى بريدك الإلكتروني.\nيرجى الضغط على الرابط في الرسالة لتفعيل حسابك.',
+                        'تم إرسال رابط التحقق إلى:\n$email\nيرجى الضغط على الرابط لتفعيل حسابك.',
                         style: AppTextStyles.bodyLarge,
                         textAlign: TextAlign.center,
                       ),
+                      const SizedBox(height: 40),
 
-                      const SizedBox(height: 48),
-
-                      // ── Resend button ──
+                      // Check verification status button
                       GestureDetector(
-                        onTap: () {
-                          Navigator.pushReplacement(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) => const CustomerHomeScreen()),
-                          );
-                        },
+                        onTap: _isChecking ? null : _handleCheckStatus,
                         child: Container(
                           width: double.infinity,
-                          padding:
-                              const EdgeInsets.symmetric(vertical: 16),
+                          padding: const EdgeInsets.symmetric(vertical: 16),
                           decoration: BoxDecoration(
                             color: AppColors.primary,
                             borderRadius: BorderRadius.circular(14),
                           ),
                           child: Center(
-                            child: Text(
-                              'إعادة إرسال الرابط',
-                              style: AppTextStyles.labelLarge,
-                            ),
+                            child: _isChecking
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(color: AppColors.textWhite, strokeWidth: 2),
+                                  )
+                                : Text(
+                                    'تحقق من التفعيل والدخول',
+                                    style: AppTextStyles.labelLarge,
+                                  ),
                           ),
                         ),
                       ),
+                      const SizedBox(height: 16),
 
+                      // Resend link button
+                      GestureDetector(
+                        onTap: (_isResending || email.isEmpty) ? null : () => _handleResend(email),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          decoration: BoxDecoration(
+                            color: AppColors.backgroundGrey,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: Center(
+                            child: _isResending
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2),
+                                  )
+                                : Text(
+                                    'إعادة إرسال الرابط',
+                                    style: AppTextStyles.labelLarge.copyWith(color: AppColors.textPrimary),
+                                  ),
+                          ),
+                        ),
+                      ),
                       const SizedBox(height: 20),
 
-                      // ── Change email row ──
+                      // Change email / Go back
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           GestureDetector(
-                            onTap: () => Navigator.pop(context),
+                            onTap: () {
+                              auth.logout();
+                              Navigator.pop(context);
+                            },
                             child: Text(
                               'تغيير البريد الإلكتروني',
                               style: GoogleFonts.cairo(
@@ -114,12 +194,8 @@ class EmailVerificationScreen extends StatelessWidget {
                           ),
                         ],
                       ),
-
                       const SizedBox(height: 40),
-
-                      // ── Page indicator dots ──
                       _buildDots(),
-
                       const SizedBox(height: 40),
                     ],
                   ),
@@ -144,7 +220,10 @@ class EmailVerificationScreen extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           GestureDetector(
-            onTap: () => Navigator.pop(context),
+            onTap: () {
+              context.read<AuthProvider>().logout();
+              Navigator.pop(context);
+            },
             child: const Icon(
               Icons.arrow_forward,
               color: AppColors.textPrimary,
@@ -170,7 +249,6 @@ class EmailVerificationScreen extends StatelessWidget {
         height: 180,
         child: Stack(
           children: [
-            // Beige/cream background shape
             Positioned(
               right: 0,
               top: 20,
@@ -183,8 +261,6 @@ class EmailVerificationScreen extends StatelessWidget {
                 ),
               ),
             ),
-
-            // White card with envelope
             Center(
               child: Container(
                 width: 140,
@@ -217,8 +293,6 @@ class EmailVerificationScreen extends StatelessWidget {
                 ),
               ),
             ),
-
-            // Orange notification badge
             Positioned(
               top: 22,
               right: 16,

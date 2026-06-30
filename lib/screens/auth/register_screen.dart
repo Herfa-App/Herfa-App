@@ -1,21 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
-import '../../core/widgets/shared_widgets.dart';
+import '../../core/providers/auth_provider.dart';
 import '../auth/login_screen.dart';
 import '../auth/email_verification_screen.dart';
 
-/// Screen 3 — Register Screen (إنشاء حساب جديد)
-/// Analysis:
-/// - "Herfa" brand + subtitle "سوق الحرفيين والمهنيين في مصر"
-/// - Blue accent line below brand
-/// - White card with title, tab switcher (عميل / حرفي)
-/// - Fields: full name, phone, city dropdown
-/// - Checkbox + terms links
-/// - Create account button (dark blue)
-/// - "تسجيل الدخول" link
-/// - Below card: trust badges, image
 class RegisterScreen extends StatefulWidget {
   final bool isCustomer;
   const RegisterScreen({super.key, this.isCustomer = true});
@@ -27,11 +19,101 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterScreenState extends State<RegisterScreen> {
   late bool _isCustomer;
   bool _agreeToTerms = false;
+  bool _isLoading = false;
+
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  String? _selectedCity;
 
   @override
   void initState() {
     super.initState();
     _isCustomer = widget.isCustomer;
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _phoneController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleRegister() async {
+    final name = _nameController.text.trim();
+    final phone = _phoneController.text.trim();
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+
+    if (name.isEmpty || phone.isEmpty || email.isEmpty || password.isEmpty || _selectedCity == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('يرجى ملء جميع الحقول المطلوبة', textAlign: TextAlign.right)),
+      );
+      return;
+    }
+
+    if (!_agreeToTerms) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('يجب الموافقة على شروط الخدمة وسياسة الخصوصية', textAlign: TextAlign.right)),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    double? latitude;
+    double? longitude;
+
+    if (!_isCustomer) {
+      try {
+        LocationPermission permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          permission = await Geolocator.requestPermission();
+        }
+        if (permission == LocationPermission.always || permission == LocationPermission.whileInUse) {
+          final position = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.high,
+          );
+          latitude = position.latitude;
+          longitude = position.longitude;
+        }
+      } catch (_) {
+        // Fallback to Cairo coordinates on error/denial
+        latitude = 30.0444;
+        longitude = 31.2357;
+      }
+    }
+
+    try {
+      final auth = context.read<AuthProvider>();
+      await auth.register(
+        email: email,
+        password: password,
+        fullName: name,
+        phone: phone,
+        city: _selectedCity!,
+        role: _isCustomer ? 'customer' : 'provider',
+        latitude: latitude,
+        longitude: longitude,
+      );
+
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/verify');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('حدث خطأ أثناء التسجيل: ${e.toString()}', textAlign: TextAlign.right)),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   @override
@@ -45,10 +127,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             child: Column(
               children: [
                 const SizedBox(height: 28),
-
-                // ── Brand Header ──
                 _buildBrandHeader(),
-
                 const SizedBox(height: 20),
 
                 // ── Register Card ──
@@ -69,7 +148,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      // Title
                       Center(
                         child: Text(
                           'إنشاء حساب جديد',
@@ -77,10 +155,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         ),
                       ),
                       const SizedBox(height: 16),
-
-                      // Tab switcher
                       _buildTabSwitcher(),
-
                       const SizedBox(height: 20),
 
                       // Full name
@@ -89,8 +164,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       _buildTextField(
                         hint: 'أدخل اسمك الثلاثي',
                         icon: Icons.person_outline,
+                        controller: _nameController,
                       ),
-
                       const SizedBox(height: 16),
 
                       // Phone
@@ -99,38 +174,49 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       _buildTextField(
                         hint: '01X XXXX XXXX',
                         icon: Icons.phone_outlined,
+                        controller: _phoneController,
                         keyboardType: TextInputType.phone,
                       ),
+                      const SizedBox(height: 16),
 
+                      // Email
+                      _buildLabel('البريد الإلكتروني'),
+                      const SizedBox(height: 8),
+                      _buildTextField(
+                        hint: 'example@herfa.com',
+                        icon: Icons.email_outlined,
+                        controller: _emailController,
+                        keyboardType: TextInputType.emailAddress,
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Password
+                      _buildLabel('كلمة السر'),
+                      const SizedBox(height: 8),
+                      _buildTextField(
+                        hint: '••••••••',
+                        icon: Icons.lock_outline,
+                        controller: _passwordController,
+                        obscureText: true,
+                      ),
                       const SizedBox(height: 16),
 
                       // City dropdown
                       _buildLabel('المدينة'),
                       const SizedBox(height: 8),
                       _buildCityDropdown(),
-
                       const SizedBox(height: 16),
 
                       // Terms checkbox
                       _buildTermsRow(),
-
                       const SizedBox(height: 20),
 
                       // Create account button
                       GestureDetector(
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  const EmailVerificationScreen(),
-                            ),
-                          );
-                        },
+                        onTap: _isLoading ? null : _handleRegister,
                         child: Container(
                           width: double.infinity,
-                          padding:
-                              const EdgeInsets.symmetric(vertical: 16),
+                          padding: const EdgeInsets.symmetric(vertical: 16),
                           decoration: BoxDecoration(
                             color: AppColors.primary,
                             borderRadius: BorderRadius.circular(14),
@@ -138,16 +224,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const Icon(Icons.arrow_back,
-                                  color: AppColors.textWhite, size: 20),
-                              const SizedBox(width: 8),
-                              Text('إنشاء حساب',
-                                  style: AppTextStyles.labelLarge),
+                              if (_isLoading)
+                                const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    color: AppColors.textWhite,
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              else ...[
+                                const Icon(Icons.arrow_back,
+                                    color: AppColors.textWhite, size: 20),
+                                const SizedBox(width: 8),
+                                Text('إنشاء حساب',
+                                    style: AppTextStyles.labelLarge),
+                              ]
                             ],
                           ),
                         ),
                       ),
-
                       const SizedBox(height: 16),
 
                       // Login link
@@ -186,12 +282,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ],
                   ),
                 ),
-
                 const SizedBox(height: 24),
-
-                // ── Trust Badges ──
                 _buildTrustBadges(),
-
                 const SizedBox(height: 40),
               ],
             ),
@@ -316,14 +408,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget _buildTextField({
     required String hint,
     required IconData icon,
+    required TextEditingController controller,
+    bool obscureText = false,
     TextInputType? keyboardType,
   }) {
     return TextField(
+      controller: controller,
+      obscureText: obscureText,
       textAlign: TextAlign.right,
       textDirection: TextDirection.rtl,
       keyboardType: keyboardType,
-      style:
-          AppTextStyles.bodyMedium.copyWith(color: AppColors.textPrimary),
+      style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textPrimary),
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: AppTextStyles.hintStyle,
@@ -341,11 +436,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide:
-              const BorderSide(color: AppColors.primary, width: 1.5),
+          borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
         ),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),
     );
   }
@@ -361,33 +454,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
+          value: _selectedCity,
           hint: Text(
             'اختر مدينتك',
             style: AppTextStyles.hintStyle,
             textDirection: TextDirection.rtl,
           ),
           isExpanded: true,
-          icon: const Icon(Icons.keyboard_arrow_down,
-              color: AppColors.textLight),
+          icon: const Icon(Icons.keyboard_arrow_down, color: AppColors.textLight),
           items: const [
-            DropdownMenuItem(
-                value: 'cairo',
-                child: Text('القاهرة',
-                    textDirection: TextDirection.rtl)),
-            DropdownMenuItem(
-                value: 'alex',
-                child: Text('الإسكندرية',
-                    textDirection: TextDirection.rtl)),
-            DropdownMenuItem(
-                value: 'portsaid',
-                child: Text('بورسعيد',
-                    textDirection: TextDirection.rtl)),
-            DropdownMenuItem(
-                value: 'giza',
-                child: Text('الجيزة',
-                    textDirection: TextDirection.rtl)),
+            DropdownMenuItem(value: 'cairo', child: Text('القاهرة', textDirection: TextDirection.rtl)),
+            DropdownMenuItem(value: 'alex', child: Text('الإسكندرية', textDirection: TextDirection.rtl)),
+            DropdownMenuItem(value: 'portsaid', child: Text('بورسعيد', textDirection: TextDirection.rtl)),
+            DropdownMenuItem(value: 'giza', child: Text('الجيزة', textDirection: TextDirection.rtl)),
           ],
-          onChanged: (_) {},
+          onChanged: (val) {
+            setState(() {
+              _selectedCity = val;
+            });
+          },
           alignment: Alignment.centerRight,
         ),
       ),
@@ -468,7 +553,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
             subtitle: 'من السباكة حتى البرمجة',
           ),
           const SizedBox(height: 20),
-          // Image placeholder
           Container(
             width: double.infinity,
             height: 120,

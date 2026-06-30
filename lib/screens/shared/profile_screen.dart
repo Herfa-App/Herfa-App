@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/shared_widgets.dart';
-import '../auth/login_screen.dart';
+import '../../core/providers/auth_provider.dart';
+import '../../core/services/supabase_service.dart';
 
-/// Profile Screen — ملفي الشخصي
-/// Shows user info, stats, settings, logout
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
   @override
@@ -19,6 +19,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    final user = auth.user;
+    final profile = auth.userProfile;
+    final phone = auth.currentUserPhone ?? 'لا يوجد';
+
+    final fullName = profile?['full_name'] ?? user?.userMetadata?['full_name'] ?? 'مستخدم حرفة';
+    final email = user?.email ?? '';
+    final city = profile?['city'] ?? user?.userMetadata?['city'] ?? 'غير محدد';
+    final avatarUrl = profile?['avatar_url'];
+
     return Scaffold(
       backgroundColor: AppColors.background,
       drawer: const HerfaDrawer(),
@@ -31,56 +41,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 textDirection: TextDirection.rtl,
                 child: Column(
                   children: [
-                    // ── Hero header ──
-                    _buildProfileHeader(),
-
+                    _buildProfileHeader(fullName, email, avatarUrl),
                     const SizedBox(height: 16),
-
-                    // ── Stats row ──
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: _buildStatsRow(),
                     ),
-
                     const SizedBox(height: 16),
-
-                    // ── Personal info card ──
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: _buildInfoCard(),
+                      child: _buildInfoCard(fullName, phone, email, city),
                     ),
-
                     const SizedBox(height: 16),
-
-                    // ── Settings card ──
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: _buildSettingsCard(),
                     ),
-
                     const SizedBox(height: 16),
-
-                    // ── Logout button ──
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: _buildLogoutButton(context),
                     ),
-
                     const SizedBox(height: 32),
                   ],
                 ),
               ),
             ),
           ),
-
-          // ── Bottom Nav ──
           _buildBottomNav(context),
         ],
       ),
     );
   }
 
-  // ── AppBar ──────────────────────────────────────────────────────────────────
   Widget _buildAppBar(BuildContext context) {
     return Container(
       color: AppColors.backgroundWhite,
@@ -92,7 +85,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       child: Row(
         children: [
-          // Edit button
           GestureDetector(
             onTap: () {},
             child: Container(
@@ -105,8 +97,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.edit_outlined,
-                      color: AppColors.primary, size: 16),
+                  const Icon(Icons.edit_outlined, color: AppColors.primary, size: 16),
                   const SizedBox(width: 4),
                   Text('تعديل',
                       style: GoogleFonts.cairo(
@@ -117,16 +108,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ),
           ),
-
           const Spacer(),
-
           Text('ملفي الشخصي',
-              style: AppTextStyles.headlineSmall
-                  .copyWith(color: AppColors.primary)),
-
+              style: AppTextStyles.headlineSmall.copyWith(color: AppColors.primary)),
           const Spacer(),
-
-          // Menu
           Builder(
             builder: (ctx) => GestureDetector(
               onTap: () => Scaffold.of(ctx).openDrawer(),
@@ -138,15 +123,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // ── Profile Header ───────────────────────────────────────────────────────────
-  Widget _buildProfileHeader() {
+  Widget _buildProfileHeader(String fullName, String email, String? avatarUrl) {
     return Container(
       width: double.infinity,
       color: AppColors.backgroundWhite,
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
       child: Column(
         children: [
-          // Avatar
           Stack(
             children: [
               Container(
@@ -155,17 +138,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: AppColors.backgroundGrey,
-                  border: Border.all(
-                      color: AppColors.primary.withOpacity(0.3), width: 3),
+                  border: Border.all(color: AppColors.primary.withOpacity(0.3), width: 3),
+                  image: avatarUrl != null
+                      ? DecorationImage(image: NetworkImage(avatarUrl), fit: BoxFit.cover)
+                      : null,
                 ),
-                child: const Icon(Icons.person,
-                    size: 50, color: AppColors.textLight),
+                child: avatarUrl == null
+                    ? const Icon(Icons.person, size: 50, color: AppColors.textLight)
+                    : null,
               ),
               Positioned(
                 bottom: 0,
                 left: 0,
                 child: GestureDetector(
-                  onTap: () {},
+                  onTap: () {}, // Handled by image upload service in future
                   child: Container(
                     width: 28,
                     height: 28,
@@ -173,45 +159,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       color: AppColors.primary,
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.camera_alt,
-                        color: AppColors.textWhite, size: 14),
+                    child: const Icon(Icons.camera_alt, color: AppColors.textWhite, size: 14),
                   ),
                 ),
               ),
             ],
           ),
-
           const SizedBox(height: 14),
-
-          // Name
-          Text('أحمد محمد',
+          Text(fullName,
               style: AppTextStyles.headlineLarge.copyWith(fontSize: 22),
               textDirection: TextDirection.rtl),
-
           const SizedBox(height: 4),
-
-          // Email
-          Text('ahmed@herfa.com',
-              style: AppTextStyles.bodyMedium
-                  .copyWith(color: AppColors.textSecondary)),
-
+          Text(email,
+              style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textSecondary)),
           const SizedBox(height: 8),
-
-          // Verified badge
           Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
             decoration: BoxDecoration(
               color: AppColors.success.withOpacity(0.1),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                  color: AppColors.success.withOpacity(0.3)),
+              border: Border.all(color: AppColors.success.withOpacity(0.3)),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.verified,
-                    color: AppColors.success, size: 14),
+                const Icon(Icons.verified, color: AppColors.success, size: 14),
                 const SizedBox(width: 4),
                 Text('حساب موثق',
                     style: GoogleFonts.cairo(
@@ -226,7 +198,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // ── Stats Row ────────────────────────────────────────────────────────────────
   Widget _buildStatsRow() {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 16),
@@ -238,19 +209,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
           _StatCell(value: '12', label: 'طلب منجز'),
-          Container(
-              width: 1, height: 40, color: AppColors.border),
+          Container(width: 1, height: 40, color: AppColors.border),
           _StatCell(value: '4.8', label: 'تقييمي'),
-          Container(
-              width: 1, height: 40, color: AppColors.border),
+          Container(width: 1, height: 40, color: AppColors.border),
           _StatCell(value: '3', label: 'حجوزات قادمة'),
         ],
       ),
     );
   }
 
-  // ── Info Card ─────────────────────────────────────────────────────────────────
-  Widget _buildInfoCard() {
+  Widget _buildInfoCard(String name, String phone, String email, String city) {
+    String cityArabic = city;
+    if (city == 'cairo') cityArabic = 'القاهرة';
+    if (city == 'alex') cityArabic = 'الإسكندرية';
+    if (city == 'portsaid') cityArabic = 'بورسعيد';
+    if (city == 'giza') cityArabic = 'الجيزة';
+
     return Container(
       decoration: BoxDecoration(
         color: AppColors.backgroundWhite,
@@ -261,56 +235,44 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _infoTile(
             icon: Icons.person_outline,
             label: 'الاسم بالكامل',
-            value: 'أحمد محمد',
+            value: name,
           ),
           _divider(),
           _infoTile(
             icon: Icons.phone_outlined,
             label: 'رقم الهاتف',
-            value: '01012345678',
+            value: phone,
           ),
           _divider(),
           _infoTile(
             icon: Icons.email_outlined,
             label: 'البريد الإلكتروني',
-            value: 'ahmed@herfa.com',
+            value: email,
           ),
           _divider(),
           _infoTile(
             icon: Icons.location_city_outlined,
             label: 'المدينة',
-            value: 'القاهرة',
+            value: cityArabic,
           ),
         ],
       ),
     );
   }
 
-  Widget _infoTile(
-      {required IconData icon,
-      required String label,
-      required String value}) {
+  Widget _infoTile({required IconData icon, required String label, required String value}) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Row(
         children: [
-          // Edit icon
-          GestureDetector(
-            onTap: () {},
-            child: const Icon(Icons.chevron_left,
-                color: AppColors.textLight, size: 20),
-          ),
+          const Icon(Icons.chevron_left, color: AppColors.textLight, size: 20),
           const Spacer(),
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(value,
-                  style: AppTextStyles.titleSmall,
-                  textDirection: TextDirection.rtl),
+              Text(value, style: AppTextStyles.titleSmall, textDirection: TextDirection.rtl),
               const SizedBox(height: 2),
-              Text(label,
-                  style: AppTextStyles.bodySmall,
-                  textDirection: TextDirection.rtl),
+              Text(label, style: AppTextStyles.bodySmall, textDirection: TextDirection.rtl),
             ],
           ),
           const SizedBox(width: 12),
@@ -331,7 +293,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _divider() =>
       const Divider(color: AppColors.border, height: 1, indent: 16, endIndent: 16);
 
-  // ── Settings Card ─────────────────────────────────────────────────────────────
   Widget _buildSettingsCard() {
     return Container(
       decoration: BoxDecoration(
@@ -346,8 +307,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: Text('الإعدادات', style: AppTextStyles.headlineSmall),
           ),
           _divider(),
-
-          // Notifications toggle
           _toggleTile(
             icon: Icons.notifications_outlined,
             label: 'الإشعارات',
@@ -355,8 +314,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             onChanged: (v) => setState(() => _notificationsOn = v),
           ),
           _divider(),
-
-          // Location toggle
           _toggleTile(
             icon: Icons.location_on_outlined,
             label: 'خدمات الموقع',
@@ -364,8 +321,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             onChanged: (v) => setState(() => _locationOn = v),
           ),
           _divider(),
-
-          // Language
           _settingsTile(
             icon: Icons.language_outlined,
             label: 'اللغة',
@@ -373,22 +328,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
             onTap: () {},
           ),
           _divider(),
-
-          // Privacy
           _settingsTile(
             icon: Icons.privacy_tip_outlined,
             label: 'سياسة الخصوصية',
             onTap: () {},
           ),
           _divider(),
-
-          // Terms
           _settingsTile(
             icon: Icons.description_outlined,
             label: 'شروط الخدمة',
             onTap: () {},
           ),
-
           const SizedBox(height: 4),
         ],
       ),
@@ -411,9 +361,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             activeColor: AppColors.primary,
           ),
           const Spacer(),
-          Text(label,
-              style: AppTextStyles.titleSmall,
-              textDirection: TextDirection.rtl),
+          Text(label, style: AppTextStyles.titleSmall, textDirection: TextDirection.rtl),
           const SizedBox(width: 12),
           Container(
             width: 38,
@@ -446,18 +394,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
               children: [
                 if (trailing != null) ...[
                   Text(trailing,
-                      style: AppTextStyles.bodySmall
-                          .copyWith(color: AppColors.textSecondary)),
+                      style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary)),
                   const SizedBox(width: 4),
                 ],
-                const Icon(Icons.chevron_left,
-                    color: AppColors.textLight, size: 20),
+                const Icon(Icons.chevron_left, color: AppColors.textLight, size: 20),
               ],
             ),
             const Spacer(),
-            Text(label,
-                style: AppTextStyles.titleSmall,
-                textDirection: TextDirection.rtl),
+            Text(label, style: AppTextStyles.titleSmall, textDirection: TextDirection.rtl),
             const SizedBox(width: 12),
             Container(
               width: 38,
@@ -474,7 +418,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // ── Logout ────────────────────────────────────────────────────────────────────
   Widget _buildLogoutButton(BuildContext context) {
     return GestureDetector(
       onTap: () {
@@ -483,32 +426,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
           builder: (_) => Directionality(
             textDirection: TextDirection.rtl,
             child: AlertDialog(
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16)),
-              title: Text('تسجيل الخروج',
-                  style: AppTextStyles.headlineSmall,
-                  textDirection: TextDirection.rtl),
-              content: Text(
-                  'هل أنت متأكد أنك تريد تسجيل الخروج؟',
-                  style: AppTextStyles.bodyMedium,
-                  textDirection: TextDirection.rtl),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Text('تسجيل الخروج', style: AppTextStyles.headlineSmall, textDirection: TextDirection.rtl),
+              content: Text('هل أنت متأكد أنك تريد تسجيل الخروج؟', style: AppTextStyles.bodyMedium, textDirection: TextDirection.rtl),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
                   child: Text('إلغاء',
-                      style: GoogleFonts.cairo(
-                          color: AppColors.textSecondary,
-                          fontWeight: FontWeight.w600)),
+                      style: GoogleFonts.cairo(color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
                 ),
                 TextButton(
-                  onPressed: () {
+                  onPressed: () async {
                     Navigator.pop(context);
-                    Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false);
+                    await context.read<AuthProvider>().logout();
+                    if (mounted) {
+                      Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false);
+                    }
                   },
                   child: Text('تسجيل الخروج',
-                      style: GoogleFonts.cairo(
-                          color: AppColors.error,
-                          fontWeight: FontWeight.w700)),
+                      style: GoogleFonts.cairo(color: AppColors.error, fontWeight: FontWeight.w700)),
                 ),
               ],
             ),
@@ -519,62 +455,56 @@ class _ProfileScreenState extends State<ProfileScreen> {
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 16),
         decoration: BoxDecoration(
-          color: AppColors.errorLight,
-          borderRadius: BorderRadius.circular(14),
+          color: AppColors.backgroundWhite,
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: AppColors.error.withOpacity(0.3)),
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.logout, color: AppColors.error, size: 20),
-            const SizedBox(width: 8),
-            Text('تسجيل الخروج',
+        child: Center(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.logout, color: AppColors.error, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'تسجيل الخروج',
                 style: GoogleFonts.cairo(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.error)),
-          ],
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.error,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  // ── Bottom Nav ────────────────────────────────────────────────────────────────
   Widget _buildBottomNav(BuildContext context) {
-    // ✅ Same order as CustomerHomeScreen
-    const items = [
-      BottomNavItem(icon: Icons.person,                   label: 'الملف'),
-      BottomNavItem(icon: Icons.chat_bubble_outline,      label: 'محادثة'),
-      BottomNavItem(icon: Icons.calendar_today_outlined,  label: 'الحجوزات'),
-      BottomNavItem(icon: Icons.receipt_long_outlined,    label: 'الأسعار'),
-      BottomNavItem(icon: Icons.home_outlined,            label: 'الرئيسية'),
-    ];
     return HerfaBottomNav(
-      currentIndex: 0, // الملف active
-      items: items,
-      onTap: (i) {
-        switch (i) {
-          case 0:
-            break; // already here
-          case 1:
-            Navigator.pushReplacementNamed(context, '/chat');
-            break;
-          case 2:
-            Navigator.pushReplacementNamed(context, '/bookings');
-            break;
-          case 3:
-            Navigator.pushReplacementNamed(context, '/prices');
-            break;
-          case 4:
-            Navigator.pushReplacementNamed(context, '/home');
-            break;
+      currentIndex: 0, // حسابي is index 0
+      items: const [
+        BottomNavItem(icon: Icons.person, label: 'الملف'),
+        BottomNavItem(icon: Icons.chat_bubble_outline, label: 'محادثة'),
+        BottomNavItem(icon: Icons.calendar_today_outlined, label: 'الحجوزات'),
+        BottomNavItem(icon: Icons.receipt_long_outlined, label: 'الأسعار'),
+        BottomNavItem(icon: Icons.home_outlined, label: 'الرئيسية'),
+      ],
+      onTap: (index) {
+        if (index == 4) {
+          Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
+        } else if (index == 1) {
+          Navigator.pushReplacementNamed(context, '/chat');
+        } else if (index == 2) {
+          Navigator.pushReplacementNamed(context, '/bookings');
+        } else if (index == 3) {
+          Navigator.pushReplacementNamed(context, '/prices');
         }
       },
     );
   }
 }
 
-// ── Stat Cell ─────────────────────────────────────────────────────────────────
 class _StatCell extends StatelessWidget {
   final String value;
   final String label;
@@ -584,13 +514,9 @@ class _StatCell extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Text(value,
-            style: AppTextStyles.headlineLarge.copyWith(
-                fontSize: 22, color: AppColors.primary)),
+        Text(value, style: AppTextStyles.headlineMedium.copyWith(color: AppColors.primary)),
         const SizedBox(height: 4),
-        Text(label,
-            style: AppTextStyles.bodySmall,
-            textDirection: TextDirection.rtl),
+        Text(label, style: AppTextStyles.bodySmall),
       ],
     );
   }

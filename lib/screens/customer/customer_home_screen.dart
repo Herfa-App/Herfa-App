@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/shared_widgets.dart';
+import '../../core/services/supabase_service.dart';
 import '../customer/filter_screen.dart';
 import '../customer/provider_profile_screen.dart';
 
@@ -15,13 +17,10 @@ class CustomerHomeScreen extends StatefulWidget {
 class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   int _navIndex = 0;
   int _selectedCategory = 2;
+  
+  List<Map<String, dynamic>> _nearbyProviders = [];
+  bool _loadingProviders = false;
 
-  // ✅ Items ordered LEFT→RIGHT visually (index 0 = leftmost on screen)
-  // Because Row has NO textDirection, items render in list order.
-  // In RTL apps the rightmost nav item should be "الرئيسية" so we put it last.
-  // But Flutter Row without textDirection renders left-to-right by default.
-  // So: [الملف | محادثة | الحجوزات | الأسعار | الرئيسية]
-  // means index 4 = الرئيسية on the FAR RIGHT.
   static const List<BottomNavItem> _navItems = [
     BottomNavItem(icon: Icons.person_outline,           label: 'الملف'),
     BottomNavItem(icon: Icons.chat_bubble_outline,      label: 'محادثة'),
@@ -33,23 +32,23 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   void _onNavTap(int i) {
     setState(() => _navIndex = i);
     switch (i) {
-      case 0: // الملف
+      case 0:
         Navigator.pushNamed(context, '/profile')
             .then((_) => setState(() => _navIndex = 4));
         break;
-      case 1: // محادثة
+      case 1:
         Navigator.pushNamed(context, '/chat')
             .then((_) => setState(() => _navIndex = 4));
         break;
-      case 2: // الحجوزات
+      case 2:
         Navigator.pushNamed(context, '/bookings')
             .then((_) => setState(() => _navIndex = 4));
         break;
-      case 3: // الأسعار
+      case 3:
         Navigator.pushNamed(context, '/prices')
             .then((_) => setState(() => _navIndex = 4));
         break;
-      case 4: // الرئيسية — already here
+      case 4:
         setState(() => _navIndex = 4);
         break;
     }
@@ -67,7 +66,44 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   @override
   void initState() {
     super.initState();
-    _navIndex = 4; // الرئيسية active on load
+    _navIndex = 4;
+    _fetchNearbyProviders();
+  }
+
+  Future<void> _fetchNearbyProviders() async {
+    setState(() => _loadingProviders = true);
+    try {
+      double lat = 30.0444;
+      double lng = 31.2357;
+
+      try {
+        LocationPermission permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          permission = await Geolocator.requestPermission();
+        }
+        if (permission == LocationPermission.always || permission == LocationPermission.whileInUse) {
+          final pos = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.medium,
+            timeLimit: const Duration(seconds: 4),
+          );
+          lat = pos.latitude;
+          lng = pos.longitude;
+        }
+      } catch (_) {}
+
+      final providers = await SupabaseService.instance.getNearbyProviders(
+        userLat: lat,
+        userLng: lng,
+      );
+      setState(() {
+        _nearbyProviders = providers;
+      });
+    } catch (_) {
+    } finally {
+      if (mounted) {
+        setState(() => _loadingProviders = false);
+      }
+    }
   }
 
   @override
@@ -117,6 +153,11 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                     const SizedBox(height: 28),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: _buildNearbyProvidersList(),
+                    ),
+                    const SizedBox(height: 28),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
                       child: _buildRecentSearches(),
                     ),
                     const SizedBox(height: 28),
@@ -146,12 +187,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
       ),
       child: Row(
         children: [
-          IconButton(
-            icon: const Icon(Icons.camera_alt_outlined,
-                color: AppColors.textSecondary),
-            onPressed: () {},
-            padding: EdgeInsets.zero,
-          ),
+          const SizedBox(width: 48), // Balancing hamburger icon
           const Spacer(),
           Text('حرفة', style: AppTextStyles.brandTitle.copyWith(fontSize: 22)),
           const Spacer(),
@@ -193,29 +229,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   style: AppTextStyles.hintStyle,
                   textAlign: TextAlign.right),
             ),
-            Container(
-              height: 52,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              decoration: const BoxDecoration(
-                color: AppColors.accent,
-                borderRadius: BorderRadius.only(
-                  topRight: Radius.circular(16),
-                  bottomRight: Radius.circular(16),
-                ),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.camera_alt,
-                      color: AppColors.textWhite, size: 18),
-                  const SizedBox(width: 6),
-                  Text('ابحث بالصور',
-                      style: GoogleFonts.cairo(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textWhite)),
-                ],
-              ),
-            ),
+            const SizedBox(width: 16),
           ],
         ),
       ),
@@ -245,8 +259,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           const SizedBox(width: 12),
           Expanded(
             child: _SuggestionCard(
-              badge: 'بناء على صورك',
-              title: 'أعمال خشبية',
+              badge: 'ممتاز للسباكة',
+              title: 'صيانة سباكة',
               height: 170,
               badgeColor: AppColors.primaryLight,
               onTap: () => Navigator.pushNamed(context, '/provider'),
@@ -263,6 +277,75 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           isFullWidth: true,
           onTap: () => Navigator.pushNamed(context, '/provider'),
         ),
+      ],
+    );
+  }
+
+  Widget _buildNearbyProvidersList() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'الحرفيين القريبين منك',
+          style: AppTextStyles.headlineSmall,
+        ),
+        const SizedBox(height: 12),
+        if (_loadingProviders)
+          const Center(child: CircularProgressIndicator())
+        else if (_nearbyProviders.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.backgroundWhite,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              'لا يوجد حرفيين متاحين بالقرب منك حالياً',
+              style: AppTextStyles.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
+          )
+        else
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _nearbyProviders.length,
+            itemBuilder: (context, index) {
+              final p = _nearbyProviders[index];
+              final distance = p['distance_km'] != null ? (p['distance_km'] as double).toStringAsFixed(1) : '?';
+              return Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.backgroundWhite,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Row(
+                  children: [
+                    Text(
+                      '${distance} كم',
+                      style: AppTextStyles.titleSmall.copyWith(color: AppColors.primary),
+                    ),
+                    const Spacer(),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(p['full_name'] ?? 'حرفي', style: AppTextStyles.titleSmall),
+                        Text(p['skills'] ?? 'عامة', style: AppTextStyles.bodySmall),
+                      ],
+                    ),
+                    const SizedBox(width: 12),
+                    CircleAvatar(
+                      backgroundImage: p['avatar_url'] != null ? NetworkImage(p['avatar_url']) : null,
+                      child: p['avatar_url'] == null ? const Icon(Icons.person) : null,
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
       ],
     );
   }
@@ -342,7 +425,6 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   }
 }
 
-// ── Suggestion Card ──────────────────────────────────────────────────────────
 class _SuggestionCard extends StatelessWidget {
   final String badge;
   final String title;
@@ -423,7 +505,6 @@ class _SuggestionCard extends StatelessWidget {
   }
 }
 
-// ── Recent Search Row ────────────────────────────────────────────────────────
 class _RecentSearchRow extends StatelessWidget {
   final String title;
   final String time;

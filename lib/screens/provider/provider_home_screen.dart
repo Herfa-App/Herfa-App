@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/shared_widgets.dart';
@@ -14,6 +15,48 @@ class ProviderHomeScreen extends StatefulWidget {
 class _ProviderHomeScreenState extends State<ProviderHomeScreen> {
   bool _isAvailable = false; // toggle متاح/مشغول
   int _selectedNavIndex = 0; // طلباتي
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchAvailability();
+  }
+
+  Future<void> _fetchAvailability() async {
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user != null) {
+        final res = await Supabase.instance.client
+            .from('providers')
+            .select('is_available')
+            .eq('id', user.id)
+            .maybeSingle();
+        if (res != null && mounted) {
+          setState(() {
+            _isAvailable = res['is_available'] ?? false;
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _toggleAvailability() async {
+    final newValue = !_isAvailable;
+    setState(() => _isAvailable = newValue);
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user != null) {
+        await Supabase.instance.client
+            .from('providers')
+            .update({'is_available': newValue})
+            .eq('id', user.id);
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _isAvailable = !newValue);
+      }
+    }
+  }
 
   void _onNavTap(int i) {
     if (i == _selectedNavIndex) return;
@@ -130,7 +173,7 @@ class _ProviderHomeScreenState extends State<ProviderHomeScreen> {
         children: [
           // Toggle switch
           GestureDetector(
-            onTap: () => setState(() => _isAvailable = !_isAvailable),
+            onTap: _toggleAvailability,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 250),
               width: 130,

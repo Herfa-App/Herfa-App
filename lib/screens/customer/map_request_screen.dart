@@ -279,34 +279,6 @@ class MapRequestScreen extends StatelessWidget {
 
             const SizedBox(height: 12),
 
-            // Add image button
-            GestureDetector(
-              onTap: () {},
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                decoration: BoxDecoration(
-                  color: AppColors.backgroundGrey,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.camera_alt_outlined,
-                        color: AppColors.textSecondary, size: 20),
-                    const SizedBox(width: 8),
-                    Text(
-                      'إضافة صورة',
-                      style: AppTextStyles.bodyMedium.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
             const SizedBox(height: 12),
 
             // Publish button

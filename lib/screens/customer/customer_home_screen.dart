@@ -5,8 +5,6 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/shared_widgets.dart';
 import '../../core/services/supabase_service.dart';
-import '../customer/filter_screen.dart';
-import '../customer/provider_profile_screen.dart';
 
 class CustomerHomeScreen extends StatefulWidget {
   const CustomerHomeScreen({super.key});
@@ -20,6 +18,11 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   
   List<Map<String, dynamic>> _nearbyProviders = [];
   bool _loadingProviders = false;
+  List<Map<String, String>> _recentSearches = [
+    {'title': 'سباكة', 'time': 'منذ 3 ساعات'},
+    {'title': 'كهرباء', 'time': 'منذ يومين'},
+    {'title': 'دهانات', 'time': 'الأسبوع الماضي'},
+  ];
 
   static const List<BottomNavItem> _navItems = [
     BottomNavItem(icon: Icons.person_outline,           label: 'الملف'),
@@ -153,15 +156,15 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                     const SizedBox(height: 28),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: _buildNearbyProvidersList(),
-                    ),
-                    const SizedBox(height: 28),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
                       child: _buildRecentSearches(),
                     ),
                     const SizedBox(height: 28),
                     _buildCategories(),
+                    const SizedBox(height: 20),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: _buildNearbyProvidersList(),
+                    ),
                     const SizedBox(height: 20),
                   ],
                 ),
@@ -236,6 +239,68 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     );
   }
 
+  Future<void> _onSuggestionTap(String categoryLabel) async {
+    // Try to find in loaded nearby list first
+    final localMatch = _nearbyProviders.firstWhere(
+      (p) => (p['skills'] ?? '').toString().contains(categoryLabel),
+      orElse: () => {},
+    );
+
+    if (localMatch.isNotEmpty) {
+      Navigator.pushNamed(context, '/provider', arguments: localMatch);
+      return;
+    }
+
+    // Fetch from Supabase dynamically
+    setState(() => _loadingProviders = true);
+    try {
+      final response = await SupabaseService.instance.client
+          .from('providers')
+          .select('*, profiles(*)')
+          .like('skills', '%$categoryLabel%')
+          .eq('is_approved', true)
+          .limit(1);
+
+      if (response.isNotEmpty) {
+        final prov = response.first;
+        final profile = prov['profiles'] as Map<String, dynamic>?;
+        final match = {
+          'id': prov['id'],
+          'full_name': profile?['full_name'] ?? 'حرفي',
+          'city': profile?['city'] ?? 'غير محدد',
+          'avatar_url': profile?['avatar_url'],
+          'skills': prov['skills'],
+          'bio': prov['bio'],
+          'experience_years': prov['experience_years'],
+          'hourly_rate': prov['hourly_rate'] != null ? (prov['hourly_rate'] as num).toDouble() : 0.0,
+          'rating': prov['rating'] != null ? (prov['rating'] as num).toDouble() : 5.0,
+          'is_available': prov['is_available'] ?? true,
+        };
+        if (mounted) {
+          Navigator.pushNamed(context, '/provider', arguments: match);
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('لا يوجد حرفيون متاحون لفئة $categoryLabel بالقرب منك حالياً', textAlign: TextAlign.right),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('حدث خطأ: ${e.toString()}', textAlign: TextAlign.right)),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _loadingProviders = false);
+      }
+    }
+  }
+
   Widget _buildSuggestionsSection(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.end,
@@ -253,7 +318,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               title: 'فني كهرباء',
               height: 170,
               badgeColor: AppColors.accent,
-              onTap: () => Navigator.pushNamed(context, '/provider'),
+              imageUrl: 'https://images.unsplash.com/photo-1621905251189-08b45d6a269e?w=500&auto=format&fit=crop&q=60',
+              onTap: () => _onSuggestionTap('كهرباء'),
             ),
           ),
           const SizedBox(width: 12),
@@ -263,7 +329,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               title: 'صيانة سباكة',
               height: 170,
               badgeColor: AppColors.primaryLight,
-              onTap: () => Navigator.pushNamed(context, '/provider'),
+              imageUrl: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=500&auto=format&fit=crop&q=60',
+              onTap: () => _onSuggestionTap('سباكة'),
             ),
           ),
         ]),
@@ -275,13 +342,20 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           height: 155,
           badgeColor: AppColors.success,
           isFullWidth: true,
-          onTap: () => Navigator.pushNamed(context, '/provider'),
+          imageUrl: 'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?w=500&auto=format&fit=crop&q=60',
+          onTap: () => _onSuggestionTap('سباكة'),
         ),
       ],
     );
   }
 
   Widget _buildNearbyProvidersList() {
+    final categoryLabel = _categories[_selectedCategory]['label'] ?? '';
+    final filtered = _nearbyProviders.where((p) {
+      final skill = p['skills'] ?? '';
+      return skill.toString().contains(categoryLabel);
+    }).toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -292,7 +366,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         const SizedBox(height: 12),
         if (_loadingProviders)
           const Center(child: CircularProgressIndicator())
-        else if (_nearbyProviders.isEmpty)
+        else if (filtered.isEmpty)
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
@@ -301,7 +375,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
-              'لا يوجد حرفيين متاحين بالقرب منك حالياً',
+              'لا يوجد حرفيين متاحين في فئة $categoryLabel بالقرب منك حالياً',
               style: AppTextStyles.bodyMedium,
               textAlign: TextAlign.center,
             ),
@@ -310,38 +384,54 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           ListView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            itemCount: _nearbyProviders.length,
+            itemCount: filtered.length,
             itemBuilder: (context, index) {
-              final p = _nearbyProviders[index];
+              final p = filtered[index];
               final distance = p['distance_km'] != null ? (p['distance_km'] as double).toStringAsFixed(1) : '?';
-              return Container(
-                margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.backgroundWhite,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: Row(
-                  children: [
-                    Text(
-                      '${distance} كم',
-                      style: AppTextStyles.titleSmall.copyWith(color: AppColors.primary),
-                    ),
-                    const Spacer(),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(p['full_name'] ?? 'حرفي', style: AppTextStyles.titleSmall),
-                        Text(p['skills'] ?? 'عامة', style: AppTextStyles.bodySmall),
-                      ],
-                    ),
-                    const SizedBox(width: 12),
-                    CircleAvatar(
-                      backgroundImage: p['avatar_url'] != null ? NetworkImage(p['avatar_url']) : null,
-                      child: p['avatar_url'] == null ? const Icon(Icons.person) : null,
-                    ),
-                  ],
+              return GestureDetector(
+                onTap: () => Navigator.pushNamed(context, '/provider', arguments: p),
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.backgroundWhite,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Row(
+                    children: [
+                      Text(
+                        '${distance} كم',
+                        style: AppTextStyles.titleSmall.copyWith(color: AppColors.primary),
+                      ),
+                      const Spacer(),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(p['full_name'] ?? 'حرفي', style: AppTextStyles.titleSmall),
+                          Text(p['skills'] ?? 'عامة', style: AppTextStyles.bodySmall),
+                        ],
+                      ),
+                      const SizedBox(width: 12),
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: AppColors.backgroundGrey,
+                        ),
+                        child: ClipOval(
+                          child: p['avatar_url'] != null
+                              ? Image.network(
+                                  p['avatar_url'],
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (c, e, s) => const Icon(Icons.person, color: AppColors.textLight),
+                                )
+                              : const Icon(Icons.person, color: AppColors.textLight),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               );
             },
@@ -350,20 +440,36 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     );
   }
 
+  void _onRecentSearchTap(String query) {
+    final idx = _categories.indexWhere((c) => c['label'].contains(query) || query.contains(c['label']));
+    if (idx != -1) {
+      setState(() => _selectedCategory = idx);
+    }
+  }
+
   Widget _buildRecentSearches() {
-    final searches = [
-      {'title': 'تصليح تسربات مياه',    'time': 'منذ يومين'},
-      {'title': 'دهانات جدران داخلية',   'time': 'الأسبوع الماضي'},
-      {'title': 'نجار تركيب غرف نوم',    'time': 'منذ 3 ساعات'},
-    ];
     return Column(children: [
       SectionHeader(
           title: 'عمليات البحث الأخيرة',
-          actionLabel: 'مسح الكل',
-          onAction: () {}),
+          actionLabel: _recentSearches.isNotEmpty ? 'مسح الكل' : '',
+          onAction: () {
+            setState(() {
+              _recentSearches = [];
+            });
+          }),
       const SizedBox(height: 12),
-      ...searches.map((s) =>
-          _RecentSearchRow(title: s['title']!, time: s['time']!)),
+      if (_recentSearches.isEmpty)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Text('لا توجد عمليات بحث مؤخراً', style: AppTextStyles.bodySmall),
+        )
+      else
+        ..._recentSearches.map((s) =>
+            _RecentSearchRow(
+              title: s['title']!,
+              time: s['time']!,
+              onTap: () => _onRecentSearchTap(s['title']!),
+            )),
     ]);
   }
 
@@ -432,6 +538,7 @@ class _SuggestionCard extends StatelessWidget {
   final double height;
   final Color badgeColor;
   final bool isFullWidth;
+  final String imageUrl;
   final VoidCallback? onTap;
 
   const _SuggestionCard({
@@ -439,6 +546,7 @@ class _SuggestionCard extends StatelessWidget {
     required this.title,
     required this.height,
     required this.badgeColor,
+    required this.imageUrl,
     this.subtitle,
     this.isFullWidth = false,
     this.onTap,
@@ -453,53 +561,73 @@ class _SuggestionCard extends StatelessWidget {
         width: isFullWidth ? double.infinity : null,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              AppColors.primary.withOpacity(0.35),
-              AppColors.primaryDark.withOpacity(0.9),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.network(
+                imageUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  color: AppColors.backgroundGrey,
+                  child: const Center(
+                    child: Icon(Icons.image_not_supported_outlined, color: AppColors.textLight, size: 32),
+                  ),
+                ),
+              ),
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withOpacity(0.1),
+                      Colors.black.withOpacity(0.75),
+                    ],
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 10, right: 10,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                      color: badgeColor, borderRadius: BorderRadius.circular(20)),
+                  child: Text(badge,
+                      style: GoogleFonts.cairo(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textWhite)),
+                ),
+              ),
+              Positioned(
+                bottom: 12, right: 12, left: 12,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (subtitle != null) ...[
+                      Text(subtitle!,
+                          style: GoogleFonts.cairo(
+                              fontSize: 11,
+                              color: AppColors.textWhite.withOpacity(0.8)),
+                          textDirection: TextDirection.rtl),
+                      const SizedBox(height: 2),
+                    ],
+                    Text(title,
+                        style: GoogleFonts.cairo(
+                            fontSize: isFullWidth ? 20 : 16,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textWhite),
+                        textDirection: TextDirection.rtl),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
-        child: Stack(children: [
-          Positioned(
-            top: 10, right: 10,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                  color: badgeColor, borderRadius: BorderRadius.circular(20)),
-              child: Text(badge,
-                  style: GoogleFonts.cairo(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textWhite)),
-            ),
-          ),
-          Positioned(
-            bottom: 12, right: 12, left: 12,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (subtitle != null) ...[
-                  Text(subtitle!,
-                      style: GoogleFonts.cairo(
-                          fontSize: 11,
-                          color: AppColors.textWhite.withOpacity(0.8)),
-                      textDirection: TextDirection.rtl),
-                  const SizedBox(height: 2),
-                ],
-                Text(title,
-                    style: GoogleFonts.cairo(
-                        fontSize: isFullWidth ? 20 : 16,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textWhite),
-                    textDirection: TextDirection.rtl),
-              ],
-            ),
-          ),
-        ]),
       ),
     );
   }
@@ -508,33 +636,37 @@ class _SuggestionCard extends StatelessWidget {
 class _RecentSearchRow extends StatelessWidget {
   final String title;
   final String time;
-  const _RecentSearchRow({required this.title, required this.time});
+  final VoidCallback? onTap;
+  const _RecentSearchRow({required this.title, required this.time, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-          color: AppColors.backgroundWhite,
-          borderRadius: BorderRadius.circular(12)),
-      child: Row(children: [
-        const Icon(Icons.arrow_back_ios, size: 14, color: AppColors.textLight),
-        const Spacer(),
-        Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          Text(title, style: AppTextStyles.titleSmall,
-              textDirection: TextDirection.rtl),
-          Text(time, style: AppTextStyles.bodySmall,
-              textDirection: TextDirection.rtl),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+            color: AppColors.backgroundWhite,
+            borderRadius: BorderRadius.circular(12)),
+        child: Row(children: [
+          const Icon(Icons.arrow_back_ios, size: 14, color: AppColors.textLight),
+          const Spacer(),
+          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Text(title, style: AppTextStyles.titleSmall,
+                textDirection: TextDirection.rtl),
+            Text(time, style: AppTextStyles.bodySmall,
+                textDirection: TextDirection.rtl),
+          ]),
+          const SizedBox(width: 12),
+          Container(
+            width: 36, height: 36,
+            decoration: const BoxDecoration(
+                color: AppColors.backgroundGrey, shape: BoxShape.circle),
+            child: const Icon(Icons.history, color: AppColors.primary, size: 18),
+          ),
         ]),
-        const SizedBox(width: 12),
-        Container(
-          width: 36, height: 36,
-          decoration: const BoxDecoration(
-              color: AppColors.backgroundGrey, shape: BoxShape.circle),
-          child: const Icon(Icons.history, color: AppColors.primary, size: 18),
-        ),
-      ]),
+      ),
     );
   }
 }

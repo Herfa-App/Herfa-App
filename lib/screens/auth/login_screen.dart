@@ -5,8 +5,6 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/services/supabase_service.dart';
-import '../auth/role_selection_screen.dart';
-import '../customer/customer_home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -53,8 +51,6 @@ class _LoginScreenState extends State<LoginScreen> {
           } else {
             Navigator.pushReplacementNamed(context, '/home');
           }
-        } else if (auth.status == AuthStatus.needsVerification) {
-          Navigator.pushReplacementNamed(context, '/verify');
         }
       }
     } catch (e) {
@@ -321,59 +317,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       style: AppTextStyles.labelLarge,
                     ),
                   ]
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-
-          // Divider "أو عبر"
-          Row(
-            children: [
-              Expanded(child: Divider(color: AppColors.border, thickness: 1)),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Text('أو عبر', style: AppTextStyles.bodySmall),
-              ),
-              Expanded(child: Divider(color: AppColors.border, thickness: 1)),
-            ],
-          ),
-          const SizedBox(height: 16),
-
-          // Google login button (mocked for demo)
-          GestureDetector(
-            onTap: () {
-              Navigator.pushReplacementNamed(context, '/home');
-            },
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              decoration: BoxDecoration(
-                color: AppColors.backgroundWhite,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    'Login with Google',
-                    style: GoogleFonts.cairo(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Container(
-                    width: 24,
-                    height: 24,
-                    decoration: BoxDecoration(
-                      color: AppColors.backgroundGrey,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: const Icon(Icons.g_mobiledata, size: 18, color: AppColors.primary),
-                  ),
                 ],
               ),
             ),

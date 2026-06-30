@@ -16,6 +16,8 @@ class AuthProvider extends ChangeNotifier {
   User? get user => _user;
   Map<String, dynamic>? get userProfile => _userProfile;
   String? get currentUserPhone => _currentUserPhone;
+  String? _tempEmail;
+  String? get tempEmail => _tempEmail;
 
   AuthProvider() {
     _initAuthListener();
@@ -61,8 +63,8 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> _checkVerificationState(Session? session) async {
-    if (session == null || session.user.emailConfirmedAt == null) {
-      _status = AuthStatus.needsVerification;
+    if (session == null) {
+      _status = AuthStatus.unauthenticated;
     } else {
       _status = AuthStatus.authenticated;
       await _fetchUserProfileAndPhone();
@@ -78,6 +80,11 @@ class AuthProvider extends ChangeNotifier {
     } catch (_) {
       // Handle silently or log
     }
+  }
+
+  Future<void> refreshProfile() async {
+    await _fetchUserProfileAndPhone();
+    notifyListeners();
   }
 
   // Reload user data manually to force-check verification state
@@ -107,6 +114,7 @@ class AuthProvider extends ChangeNotifier {
     required String password,
   }) async {
     _status = AuthStatus.loading;
+    _tempEmail = email;
     notifyListeners();
 
     try {
@@ -133,6 +141,7 @@ class AuthProvider extends ChangeNotifier {
     double? longitude,
   }) async {
     _status = AuthStatus.loading;
+    _tempEmail = email;
     notifyListeners();
 
     try {
@@ -159,5 +168,41 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> logout() async {
     await _supabaseService.signOut();
+  }
+
+  Future<void> loginWithGoogle() async {
+    _status = AuthStatus.loading;
+    notifyListeners();
+
+    try {
+      await _supabaseService.signInWithGoogle();
+    } catch (e) {
+      _status = AuthStatus.unauthenticated;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> verifyOTP({
+    required String email,
+    required String token,
+  }) async {
+    _status = AuthStatus.loading;
+    notifyListeners();
+
+    try {
+      final response = await _supabaseService.client.auth.verifyOTP(
+        email: email,
+        token: token,
+        type: OtpType.signup,
+      );
+      _user = response.user;
+      _status = response.user != null ? AuthStatus.authenticated : AuthStatus.unauthenticated;
+      notifyListeners();
+    } catch (e) {
+      _status = AuthStatus.unauthenticated;
+      notifyListeners();
+      rethrow;
+    }
   }
 }

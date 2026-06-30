@@ -17,6 +17,9 @@ class _BookingConfirmationScreenState extends State<BookingConfirmationScreen> {
   bool _cashOnDelivery = true;
   bool _isLoading = false;
   DateTime _selectedDate = DateTime.now().add(const Duration(days: 2));
+  String _location = 'حي المعادي، بورسعيد، مصر';
+  double _locationLat = 31.2653;
+  double _locationLng = 32.3019;
 
   Future<void> _pickDateTime() async {
     final pickedDate = await showDatePicker(
@@ -45,6 +48,152 @@ class _BookingConfirmationScreenState extends State<BookingConfirmationScreen> {
     });
   }
 
+  Future<void> _editLocation() async {
+    final addressCtrl = TextEditingController(text: _location);
+    double pickedLat = _locationLat;
+    double pickedLng = _locationLng;
+    // Offset from centre of 1500x1500 canvas
+    double pinX = 750.0;
+    double pinY = 750.0;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setSheet) {
+          return Directionality(
+            textDirection: TextDirection.rtl,
+            child: Container(
+              height: MediaQuery.of(ctx).size.height * 0.85,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Column(
+                children: [
+                  // Handle
+                  Container(
+                    margin: const EdgeInsets.symmetric(vertical: 10),
+                    width: 40, height: 4,
+                    decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+                  ),
+                  // Header
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.location_on, color: AppColors.primary),
+                        const SizedBox(width: 8),
+                        Text('اختر موقع التنفيذ', style: GoogleFonts.cairo(fontSize: 17, fontWeight: FontWeight.w700)),
+                        const Spacer(),
+                        IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                      ],
+                    ),
+                  ),
+                  // Map area
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        // Interactive map canvas
+                        Positioned.fill(
+                          child: GestureDetector(
+                            onTapDown: (d) {
+                              setSheet(() {
+                                pinX = d.localPosition.dx;
+                                pinY = d.localPosition.dy;
+                                // Convert tap position to simulated lat/lng
+                                pickedLat = 31.2653 + (0.5 - pinY / MediaQuery.of(ctx).size.height * 0.55) * 0.1;
+                                pickedLng = 32.3019 + (pinX / MediaQuery.of(ctx).size.width - 0.5) * 0.1;
+                              });
+                            },
+                            child: InteractiveViewer(
+                              maxScale: 3.0,
+                              minScale: 0.5,
+                              child: CustomPaint(
+                                painter: _LocationMapPainter(),
+                                size: Size(MediaQuery.of(ctx).size.width, MediaQuery.of(ctx).size.height * 0.5),
+                              ),
+                            ),
+                          ),
+                        ),
+                        // Pin at tap position
+                        Positioned(
+                          left: pinX - 16,
+                          top: pinY - 36,
+                          child: const Icon(Icons.location_on, color: AppColors.primary, size: 36,
+                            shadows: [Shadow(color: Colors.black26, blurRadius: 8)]),
+                        ),
+                        // Instruction overlay
+                        const Positioned(
+                          top: 12, left: 0, right: 0,
+                          child: Center(
+                            child: Material(
+                              color: Colors.black54, borderRadius: BorderRadius.all(Radius.circular(8)),
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                child: Text('اضغط على الخريطة لاختيار الموقع',
+                                  style: TextStyle(color: Colors.white, fontSize: 12)),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Address text field
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(16, 12, 16, MediaQuery.of(ctx).viewInsets.bottom + 16),
+                    child: Column(
+                      children: [
+                        TextField(
+                          controller: addressCtrl,
+                          textDirection: TextDirection.rtl,
+                          decoration: InputDecoration(
+                            labelText: 'تأكيد العنوان',
+                            hintText: 'مثال: شارع طلعت حرب، بورسعيد',
+                            prefixIcon: const Icon(Icons.edit_location_alt_outlined),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          style: GoogleFonts.cairo(),
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            icon: const Icon(Icons.check, color: Colors.white),
+                            label: Text('تأكيد الموقع', style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15)),
+                            onPressed: () {
+                              if (mounted) {
+                                setState(() {
+                                  _location = addressCtrl.text.trim().isNotEmpty
+                                      ? addressCtrl.text.trim()
+                                      : _location;
+                                  _locationLat = pickedLat;
+                                  _locationLng = pickedLng;
+                                });
+                              }
+                              Navigator.pop(ctx);
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        });
+      },
+    );
+  }
+
   Future<void> _handleConfirmBooking(Map<String, dynamic> provider) async {
     setState(() => _isLoading = true);
     
@@ -59,6 +208,9 @@ class _BookingConfirmationScreenState extends State<BookingConfirmationScreen> {
         description: 'طلب خدمة صيانة منزلية - ${provider['skills'] ?? 'عامة'}',
         bookingDate: _selectedDate,
         totalPrice: finalPrice,
+        locationAddress: _location,
+        locationLat: _locationLat,
+        locationLng: _locationLng,
       );
 
       if (mounted) {
@@ -227,9 +379,17 @@ class _BookingConfirmationScreenState extends State<BookingConfirmationScreen> {
             decoration: BoxDecoration(
               color: AppColors.backgroundGrey,
               borderRadius: BorderRadius.circular(12),
-              image: avatarUrl != null ? DecorationImage(image: NetworkImage(avatarUrl), fit: BoxFit.cover) : null,
             ),
-            child: avatarUrl == null ? const Icon(Icons.carpenter, size: 36, color: Colors.white38) : null,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: avatarUrl != null
+                  ? Image.network(
+                      avatarUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (c, e, s) => const Icon(Icons.carpenter, size: 36, color: Colors.white38),
+                    )
+                  : const Icon(Icons.carpenter, size: 36, color: Colors.white38),
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -316,7 +476,7 @@ class _BookingConfirmationScreenState extends State<BookingConfirmationScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           GestureDetector(
-            onTap: () {},
+            onTap: _editLocation,
             child: Text('تعديل', style: AppTextStyles.accentLink),
           ),
           Row(
@@ -326,7 +486,7 @@ class _BookingConfirmationScreenState extends State<BookingConfirmationScreen> {
                 children: [
                   Text('موقع التنفيذ', style: AppTextStyles.titleSmall),
                   Text(
-                    'حي الأرجس، القاهرة، مصر',
+                    _location,
                     style: AppTextStyles.bodySmall,
                   ),
                 ],
@@ -528,3 +688,60 @@ class _BookingConfirmationScreenState extends State<BookingConfirmationScreen> {
     );
   }
 }
+
+class _LocationMapPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    // ── Background (land)
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Paint()..color = const Color(0xFFF0EDE6),
+    );
+
+    // Grid blocks for neighborhood styling
+    const blockColor = Color(0xFFE5DDD3);
+    const parkColor = Color(0xFFD3E7D3);
+
+    final roadPaint = Paint()
+      ..color = Colors.white
+      ..strokeWidth = 14
+      ..style = PaintingStyle.stroke;
+
+    final borderPaint = Paint()
+      ..color = const Color(0xFFDFD7CB)
+      ..strokeWidth = 18
+      ..style = PaintingStyle.stroke;
+
+    // Draw some simple blocks
+    for (int i = 0; i < 5; i++) {
+      for (int j = 0; j < 4; j++) {
+        final x = 20.0 + i * 80.0;
+        final y = 20.0 + j * 80.0;
+        final isPark = (i == 2 && j == 1) || (i == 4 && j == 3);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(Rect.fromLTWH(x, y, 60, 60), const Radius.circular(6)),
+          Paint()..color = isPark ? parkColor : blockColor,
+        );
+      }
+    }
+
+    // Draw vertical and horizontal streets
+    void street(Offset p1, Offset p2) {
+      canvas.drawLine(p1, p2, borderPaint);
+      canvas.drawLine(p1, p2, roadPaint);
+    }
+
+    for (int i = 0; i < 6; i++) {
+      final x = 10.0 + i * 80.0;
+      street(Offset(x, 0), Offset(x, size.height));
+    }
+    for (int j = 0; j < 5; j++) {
+      final y = 10.0 + j * 80.0;
+      street(Offset(0, y), Offset(size.width, y));
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+

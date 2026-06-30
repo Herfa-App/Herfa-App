@@ -43,6 +43,7 @@ class SupabaseService {
       email: email,
       password: password,
       data: metaData,
+      emailRedirectTo: 'herfa://login-callback',
     );
   }
 
@@ -60,11 +61,43 @@ class SupabaseService {
     await client.auth.signOut();
   }
 
+  Future<void> signInWithGoogle() async {
+    await client.auth.signInWithOAuth(
+      OAuthProvider.google,
+      redirectTo: 'herfa://login-callback',
+    );
+  }
+
   Future<void> resetPassword(String email) async {
     await client.auth.resetPasswordForEmail(
       email,
       redirectTo: 'herfa://login-callback',
     );
+  }
+
+  Future<Map<String, double>> getCategoryAverageRates() async {
+    try {
+      final response = await client.from('providers').select('skills, hourly_rate');
+      final Map<String, List<double>> ratesMap = {};
+      for (final item in response) {
+        final skill = item['skills']?.toString() ?? 'عامة';
+        final rate = double.tryParse(item['hourly_rate']?.toString() ?? '0') ?? 0.0;
+        if (rate > 0) {
+          ratesMap.putIfAbsent(skill, () => []).add(rate);
+        }
+      }
+      
+      final Map<String, double> averages = {};
+      ratesMap.forEach((key, list) {
+        if (list.isNotEmpty) {
+          final sum = list.reduce((a, b) => a + b);
+          averages[key] = sum / list.length;
+        }
+      });
+      return averages;
+    } catch (_) {
+      return {};
+    }
   }
 
   // ── Profiles & Contact Info ───────────────────────────────────────────────
@@ -124,6 +157,9 @@ class SupabaseService {
     required String description,
     required DateTime bookingDate,
     double? totalPrice,
+    String? locationAddress,
+    double? locationLat,
+    double? locationLng,
   }) async {
     final user = client.auth.currentUser;
     if (user == null) throw Exception('User not logged in');
@@ -135,11 +171,38 @@ class SupabaseService {
       'booking_date': bookingDate.toIso8601String(),
     };
 
-    if (totalPrice != null) {
-      payload['total_price'] = totalPrice;
-    }
+    if (totalPrice != null) payload['total_price'] = totalPrice;
+    if (locationAddress != null) payload['location_address'] = locationAddress;
+    if (locationLat != null) payload['location_lat'] = locationLat;
+    if (locationLng != null) payload['location_lng'] = locationLng;
 
     await client.from('bookings').insert(payload);
+  }
+
+  Future<void> updateProviderProfile({
+    required String providerId,
+    String? skills,
+    String? bio,
+    int? experienceYears,
+    double? hourlyRate,
+  }) async {
+    final Map<String, dynamic> payload = {};
+    if (skills != null) payload['skills'] = skills;
+    if (bio != null) payload['bio'] = bio;
+    if (experienceYears != null) payload['experience_years'] = experienceYears;
+    if (hourlyRate != null) payload['hourly_rate'] = hourlyRate;
+    if (payload.isEmpty) return;
+
+    await client.from('providers').update(payload).eq('id', providerId);
+  }
+
+  Future<Map<String, dynamic>?> getProviderProfile(String providerId) async {
+    final res = await client
+        .from('providers')
+        .select('skills, bio, experience_years, hourly_rate, rating, is_available, badges, portfolio_images')
+        .eq('id', providerId)
+        .maybeSingle();
+    return res;
   }
 
   // Edit booking payload (explicit whitelist to avoid CLS status/price update errors)

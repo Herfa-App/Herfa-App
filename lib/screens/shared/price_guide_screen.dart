@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/shared_widgets.dart';
+import '../../core/services/supabase_service.dart';
 
 class PriceGuideScreen extends StatefulWidget {
   const PriceGuideScreen({super.key});
@@ -13,9 +14,137 @@ class PriceGuideScreen extends StatefulWidget {
 class _PriceGuideScreenState extends State<PriceGuideScreen> {
   int _selectedFilter = 0;
   final List<String> _filters = ['الكل', 'صيانة', 'تأسيس', 'تركيب'];
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+  Map<String, double> _averageRates = {};
+  bool _loading = false;
+
+  final List<Map<String, dynamic>> _serviceCards = [
+    {
+      'title': 'خدمات السباكة',
+      'category': 'سباكة',
+      'badge': 'أكثر طلباً',
+      'badgeColor': AppColors.accent,
+      'icon': Icons.plumbing_outlined,
+      'iconBg': const Color(0xFFFFF0E0),
+      'iconColor': AppColors.accent,
+      'items': [
+        {'label': 'تسليك أحواض ومواسير', 'type': 'صيانة', 'price': '١٠٠ - ٢٠٠ ج.م'},
+        {'label': 'تركيب طقم حمام كامل', 'type': 'تركيب', 'price': '٨٠٠ - ١٥٠٠ ج.م'},
+        {'label': 'تأسيس شبكة مياه وصرف', 'type': 'تأسيس', 'price': '٣٠٠٠ - ٦٠٠٠ ج.م'},
+      ],
+    },
+    {
+      'title': 'خدمات النجارة',
+      'category': 'نجارة',
+      'icon': Icons.carpenter_outlined,
+      'iconBg': const Color(0xFFEEF0F8),
+      'iconColor': AppColors.primary,
+      'items': [
+        {'label': 'إصلاح كوالين ومفصلات أبواب', 'type': 'صيانة', 'price': '١٥٠ - ٣٠٠ ج.م'},
+        {'label': 'تركيب غرف نوم ودواليب', 'type': 'تركيب', 'price': '١٢٠٠ - ٢٥٠٠ ج.م'},
+        {'label': 'تأسيس حلوق خشبية', 'type': 'تأسيس', 'price': '٨٠٠ - ١٦٠٠ ج.م'},
+      ],
+    },
+    {
+      'title': 'خدمات الكهرباء',
+      'category': 'كهرباء',
+      'badge': 'مخاطرة عالية',
+      'badgeColor': AppColors.error,
+      'icon': Icons.electrical_services_outlined,
+      'iconBg': const Color(0xFFFEEDEB),
+      'iconColor': AppColors.error,
+      'items': [
+        {'label': 'تركيب مفاتيح وإنارة', 'type': 'تركيب', 'price': '٥٠ - ١٢٠ ج.م'},
+        {'label': 'صيانة أعطال ودوائر كهربائية', 'type': 'صيانة', 'price': '٢٠٠ - ٤٠٠ ج.م'},
+        {'label': 'تأسيس كهرباء شقة بالكامل', 'type': 'تأسيس', 'price': '٤٠٠٠ - ٨٠٠٠ ج.م'},
+      ],
+    },
+    {
+      'title': 'خدمات النقاشة والدهانات',
+      'category': 'دهانات',
+      'icon': Icons.format_paint_outlined,
+      'iconBg': const Color(0xFFF0F0FF),
+      'iconColor': const Color(0xFF6C63FF),
+      'items': [
+        {'label': 'دهان حوائط وأسقف (سعر المتر)', 'type': 'تركيب', 'price': '٥٠ - ٩٠ ج.م'},
+        {'label': 'معالجة رطوبة وتشققات الجدران', 'type': 'صيانة', 'price': '١٥٠ - ٣٠٠ ج.م'},
+        {'label': 'تأسيس معجون وصنفرة غرف', 'type': 'تأسيس', 'price': '٤٠ - ٨٠ ج.م'},
+      ],
+    },
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchAverages();
+    _searchController.addListener(() {
+      setState(() {
+        _searchQuery = _searchController.text.trim();
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetchAverages() async {
+    setState(() => _loading = true);
+    try {
+      final map = await SupabaseService.instance.getCategoryAverageRates();
+      setState(() {
+        _averageRates = map;
+      });
+    } catch (_) {}
+    finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final filterType = _filters[_selectedFilter];
+    final List<Widget> serviceWidgets = [];
+
+    for (final card in _serviceCards) {
+      final categoryName = card['category'] as String;
+      final avgRate = _averageRates[categoryName] ?? 0.0;
+      final items = card['items'] as List<Map<String, String>>;
+      
+      final filteredItems = items.where((item) {
+        final labelMatches = _searchQuery.isEmpty || 
+            item['label']!.contains(_searchQuery) || 
+            card['title']!.contains(_searchQuery);
+        final typeMatches = filterType == 'الكل' || item['type'] == filterType;
+        return labelMatches && typeMatches;
+      }).toList();
+
+      if (filteredItems.isNotEmpty) {
+        serviceWidgets.add(
+          Column(
+            children: [
+              _buildServiceCard(
+                badge: card['badge'],
+                badgeColor: card['badgeColor'],
+                icon: card['icon'],
+                iconBg: card['iconBg'],
+                iconColor: card['iconColor'],
+                title: card['title'],
+                avgRate: avgRate,
+                items: filteredItems.map((item) => _PriceRow(item['label']!, item['price']!)).toList(),
+              ),
+              const SizedBox(height: 14),
+            ],
+          ),
+        );
+      }
+    }
+
     return Scaffold(
       backgroundColor: AppColors.background,
       drawer: const HerfaDrawer(),
@@ -40,53 +169,27 @@ class _PriceGuideScreenState extends State<PriceGuideScreen> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Column(children: [
-                    _buildServiceCard(
-                      badge: 'أكثر طلباً', badgeColor: AppColors.accent,
-                      icon: Icons.plumbing_outlined,
-                      iconBg: const Color(0xFFFFF0E0), iconColor: AppColors.accent,
-                      title: 'خدمات السباكة',
-                      items: const [
-                        _PriceRow('تغيير مشور', '١٠ - ٢٠ ج.م'),
-                        _PriceRow('أسلك دوش', '١٥ - ٣٥ ج.م'),
-                        _PriceRow('تركيب طفم حمام', '٨٠ - ١٥٠ ج.م'),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    _buildServiceCard(
-                      icon: Icons.carpenter_outlined,
-                      iconBg: const Color(0xFFEEF0F8), iconColor: AppColors.primary,
-                      title: 'خدمات النجارة',
-                      items: const [
-                        _PriceRow('تركيب كابون باب', '١٠ - ٣٠ ج.م'),
-                        _PriceRow('تفكيك/تركيب سرير', '٢٠ - ٤٠ ج.م'),
-                        _PriceRow('إصلاح مفصلات دواليب', '١٠ - ٢٥ ج.م'),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    _buildServiceCard(
-                      badge: 'مخاطرة عالية', badgeColor: AppColors.error,
-                      icon: Icons.electrical_services_outlined,
-                      iconBg: const Color(0xFFFEEDEB), iconColor: AppColors.error,
-                      title: 'خدمات الكهرباء',
-                      items: const [
-                        _PriceRow('تركيب لمبة', '٢٠ - ٥٠ ج.م'),
-                        _PriceRow('تغيير مفاتيح كهرباء', '٥٠ - ١٠٠ ج.م'),
-                        _PriceRow('صيانة لوحة توزيع', '٤٠ - ٨٠ ج.م'),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    _buildServiceCard(
-                      icon: Icons.format_paint_outlined,
-                      iconBg: const Color(0xFFF0F0FF),
-                      iconColor: const Color(0xFF6C63FF),
-                      title: 'خدمات النقاشة والدهانات',
-                      items: const [
-                        _PriceRow('دهان غرفة (وجه واحد)', '٨٠ - ١٢٠ ج.م'),
-                        _PriceRow('سحب معجون (متر مربع)', '٤٠ - ٧٠ ج.م'),
-                        _PriceRow('عزل أسطح ورطوبة', '١٥٠ - ٣٠٠ ج.م'),
-                        _PriceRow('إصلاح قروق وتشققات', '٣٠ - ٦٠ ج.م'),
-                      ],
-                    ),
+                    if (_loading && serviceWidgets.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 40),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else if (serviceWidgets.isEmpty)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: AppColors.backgroundWhite,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Text(
+                          'لم يتم العثور على خدمات مطابقة للبحث',
+                          style: AppTextStyles.bodyMedium,
+                          textAlign: TextAlign.center,
+                        ),
+                      )
+                    else
+                      ...serviceWidgets,
                     const SizedBox(height: 16),
                     _buildCtaCard(),
                     const SizedBox(height: 16),
@@ -172,6 +275,7 @@ class _PriceGuideScreenState extends State<PriceGuideScreen> {
             child: Icon(Icons.search, color: AppColors.textLight, size: 20)),
         Expanded(
           child: TextField(
+            controller: _searchController,
             textAlign: TextAlign.right, textDirection: TextDirection.rtl,
             style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textPrimary),
             decoration: InputDecoration(
@@ -179,7 +283,7 @@ class _PriceGuideScreenState extends State<PriceGuideScreen> {
               hintStyle: AppTextStyles.hintStyle,
               border: InputBorder.none, enabledBorder: InputBorder.none,
               focusedBorder: InputBorder.none,
-              contentPadding: const EdgeInsets.symmetric(vertical: 14),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
               filled: false,
             ),
           ),
@@ -222,7 +326,7 @@ class _PriceGuideScreenState extends State<PriceGuideScreen> {
   Widget _buildServiceCard({
     String? badge, Color? badgeColor,
     required IconData icon, required Color iconBg, required Color iconColor,
-    required String title, required List<_PriceRow> items,
+    required String title, required double avgRate, required List<_PriceRow> items,
   }) {
     return Container(
       width: double.infinity,
@@ -251,6 +355,14 @@ class _PriceGuideScreenState extends State<PriceGuideScreen> {
         ]),
         const SizedBox(height: 10),
         Text(title, style: AppTextStyles.headlineSmall),
+        if (avgRate > 0) ...[
+          const SizedBox(height: 4),
+          Text(
+            'متوسط سعر الساعة الحرفي: ${avgRate.toStringAsFixed(0)} ج.م',
+            style: GoogleFonts.cairo(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.primary),
+            textDirection: TextDirection.rtl,
+          ),
+        ],
         const SizedBox(height: 12),
         ...items.map((r) => Padding(
           padding: const EdgeInsets.only(bottom: 8),
@@ -284,7 +396,9 @@ class _PriceGuideScreenState extends State<PriceGuideScreen> {
             textAlign: TextAlign.center, textDirection: TextDirection.rtl),
         const SizedBox(height: 14),
         GestureDetector(
-          onTap: () {},
+          onTap: () {
+            Navigator.pushReplacementNamed(context, '/home');
+          },
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
             decoration: BoxDecoration(
@@ -335,7 +449,6 @@ class _PriceGuideScreenState extends State<PriceGuideScreen> {
   }
 
   Widget _buildBottomNav(BuildContext context) {
-    // ✅ Same order as CustomerHomeScreen: [الملف | محادثة | الحجوزات | الأسعار | الرئيسية]
     const items = [
       BottomNavItem(icon: Icons.person_outline,           label: 'الملف'),
       BottomNavItem(icon: Icons.chat_bubble_outline,      label: 'محادثة'),
@@ -344,7 +457,7 @@ class _PriceGuideScreenState extends State<PriceGuideScreen> {
       BottomNavItem(icon: Icons.home_outlined,            label: 'الرئيسية'),
     ];
     return HerfaBottomNav(
-      currentIndex: 3, // الأسعار active
+      currentIndex: 3,
       items: items,
       onTap: (i) {
         switch (i) {
@@ -355,10 +468,10 @@ class _PriceGuideScreenState extends State<PriceGuideScreen> {
             Navigator.pushReplacementNamed(context, '/chat');
             break;
           case 2:
-            Navigator.pushReplacementNamed(context, '/bookings');
+            Navigator.pushReplacementNamed(context, '/requests');
             break;
           case 3:
-            break; // already here
+            break;
           case 4:
             Navigator.pushReplacementNamed(context, '/home');
             break;

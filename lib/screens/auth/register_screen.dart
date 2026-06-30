@@ -6,7 +6,6 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/providers/auth_provider.dart';
 import '../auth/login_screen.dart';
-import '../auth/email_verification_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   final bool isCustomer;
@@ -101,7 +100,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
 
       if (mounted) {
-        Navigator.pushReplacementNamed(context, '/verify');
+        // Navigate directly to home — email confirmation disabled
+        final role = context.read<AuthProvider>().user?.userMetadata?['role'] ?? 'customer';
+        if (role == 'provider') {
+          Navigator.pushReplacementNamed(context, '/pro-home');
+        } else {
+          Navigator.pushReplacementNamed(context, '/home');
+        }
       }
     } catch (e) {
       if (mounted) {

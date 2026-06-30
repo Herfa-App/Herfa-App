@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/shared_widgets.dart';
+import '../../core/services/supabase_service.dart';
 import '../provider/provider_home_screen.dart';
 
 /// Screen 6 — Provider Profile Setup Screen
@@ -27,6 +28,19 @@ class ProviderSetupScreen extends StatefulWidget {
 class _ProviderSetupScreenState extends State<ProviderSetupScreen> {
   String? _selectedCraft;
   int _selectedNavIndex = 3; // حسابي active
+  bool _isLoading = false;
+
+  final TextEditingController _experienceController = TextEditingController();
+  final TextEditingController _bioController = TextEditingController();
+  final TextEditingController _rateController = TextEditingController();
+
+  @override
+  void dispose() {
+    _experienceController.dispose();
+    _bioController.dispose();
+    _rateController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -61,6 +75,18 @@ class _ProviderSetupScreenState extends State<ProviderSetupScreen> {
                       _buildSectionLabel('سنوات الخبرة'),
                       const SizedBox(height: 8),
                       _buildExperienceField(),
+                      const SizedBox(height: 16),
+
+                      // Bio details
+                      _buildSectionLabel('نبذة مختصرة عن خبرتك (Bio)'),
+                      const SizedBox(height: 8),
+                      _buildBioField(),
+                      const SizedBox(height: 16),
+
+                      // Hourly rate
+                      _buildSectionLabel('سعر الساعة المتوقع (بالجنيه)'),
+                      const SizedBox(height: 8),
+                      _buildRateField(),
                       const SizedBox(height: 16),
 
                       // Portfolio
@@ -278,6 +304,7 @@ class _ProviderSetupScreenState extends State<ProviderSetupScreen> {
 
   Widget _buildExperienceField() {
     return TextField(
+      controller: _experienceController,
       textAlign: TextAlign.right,
       textDirection: TextDirection.rtl,
       keyboardType: TextInputType.number,
@@ -394,25 +421,135 @@ class _ProviderSetupScreenState extends State<ProviderSetupScreen> {
 
   Widget _buildSaveButton(BuildContext context) {
     return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const ProviderHomeScreen()),
-        );
-      },
+      onTap: _isLoading ? null : _saveProviderProfile,
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 16),
         decoration: BoxDecoration(
-          color: AppColors.primary,
+          color: _isLoading ? AppColors.textSecondary : AppColors.primary,
           borderRadius: BorderRadius.circular(14),
         ),
         child: Center(
-          child: Text('حفظ وإتمام التسجيل',
-              style: AppTextStyles.labelLarge),
+          child: _isLoading 
+              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+              : Text('حفظ وإتمام التسجيل', style: AppTextStyles.labelLarge),
         ),
       ),
     );
+  }
+
+  Widget _buildBioField() {
+    return TextField(
+      controller: _bioController,
+      textAlign: TextAlign.right,
+      textDirection: TextDirection.rtl,
+      maxLines: 3,
+      style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textPrimary),
+      decoration: InputDecoration(
+        hintText: 'اكتب نبذة قصيرة عن مهاراتك وخبراتك للعملاء...',
+        hintStyle: AppTextStyles.hintStyle,
+        filled: true,
+        fillColor: AppColors.inputFill,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      ),
+    );
+  }
+
+  Widget _buildRateField() {
+    return TextField(
+      controller: _rateController,
+      textAlign: TextAlign.right,
+      textDirection: TextDirection.rtl,
+      keyboardType: TextInputType.number,
+      style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textPrimary),
+      decoration: InputDecoration(
+        hintText: 'مثال: 150',
+        hintStyle: AppTextStyles.hintStyle,
+        suffixText: 'ج.م / ساعة',
+        suffixStyle: GoogleFonts.cairo(color: AppColors.textSecondary, fontSize: 12),
+        filled: true,
+        fillColor: AppColors.inputFill,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      ),
+    );
+  }
+
+  Future<void> _saveProviderProfile() async {
+    final experience = int.tryParse(_experienceController.text.trim()) ?? 0;
+    final bio = _bioController.text.trim();
+    final rate = double.tryParse(_rateController.text.trim()) ?? 0.0;
+    final craft = _selectedCraft ?? 'general';
+
+    // Map internal selection to Arabic skill category text to store in DB
+    String skillCategory = 'عامة';
+    if (craft == 'plumbing') skillCategory = 'سباكة';
+    else if (craft == 'carpentry') skillCategory = 'نجارة';
+    else if (craft == 'electricity') skillCategory = 'كهرباء';
+    else if (craft == 'painting') skillCategory = 'دهانات';
+    else if (craft == 'hvac') skillCategory = 'تكييف';
+
+    setState(() => _isLoading = true);
+
+    try {
+      final user = SupabaseService.instance.client.auth.currentUser;
+      if (user != null) {
+        // Update the provider profile details in Supabase
+        await SupabaseService.instance.client
+            .from('providers')
+            .update({
+              'skills': skillCategory,
+              'bio': bio,
+              'experience_years': experience,
+              'hourly_rate': rate,
+              'is_approved': true, // Auto-approve for testing/demo
+            })
+            .eq('id', user.id);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('تم حفظ الملف وتفعيل الحساب بنجاح!', textAlign: TextAlign.right)),
+          );
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const ProviderHomeScreen()),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('فشل حفظ الملف: ${e.toString()}', textAlign: TextAlign.right)),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   Widget _buildProgressBar() {

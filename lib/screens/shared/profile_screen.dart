@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/shared_widgets.dart';
@@ -16,6 +17,39 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   bool _notificationsOn = true;
   bool _locationOn = true;
+  Map<String, dynamic>? _providerDetails;
+  bool _loadingProvider = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final auth = context.read<AuthProvider>();
+      if (auth.userProfile?['role'] == 'provider') {
+        _fetchProviderDetails();
+      }
+    });
+  }
+
+  Future<void> _fetchProviderDetails() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+    if (!mounted) return;
+    setState(() => _loadingProvider = true);
+    try {
+      final details = await SupabaseService.instance.getProviderProfile(user.id);
+      if (mounted) {
+        setState(() {
+          _providerDetails = details;
+        });
+      }
+    } catch (_) {}
+    finally {
+      if (mounted) {
+        setState(() => _loadingProvider = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -34,7 +68,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       drawer: const HerfaDrawer(),
       body: Column(
         children: [
-          _buildAppBar(context),
+          _buildAppBar(context, fullName, phone, city),
           Expanded(
             child: SingleChildScrollView(
               child: Directionality(
@@ -52,6 +86,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: _buildInfoCard(fullName, phone, email, city),
                     ),
+                    if (profile?['role'] == 'provider') ...[
+                      const SizedBox(height: 16),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: _buildProviderInfoCard(),
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -74,7 +115,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildAppBar(BuildContext context) {
+  Widget _buildAppBar(BuildContext context, String fullName, String phone, String city) {
     return Container(
       color: AppColors.backgroundWhite,
       padding: EdgeInsets.only(
@@ -86,7 +127,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Row(
         children: [
           GestureDetector(
-            onTap: () {},
+            onTap: () => _showEditProfileDialog(fullName, phone, city),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
@@ -139,13 +180,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   shape: BoxShape.circle,
                   color: AppColors.backgroundGrey,
                   border: Border.all(color: AppColors.primary.withOpacity(0.3), width: 3),
-                  image: avatarUrl != null
-                      ? DecorationImage(image: NetworkImage(avatarUrl), fit: BoxFit.cover)
-                      : null,
                 ),
-                child: avatarUrl == null
-                    ? const Icon(Icons.person, size: 50, color: AppColors.textLight)
-                    : null,
+                child: ClipOval(
+                  child: avatarUrl != null
+                      ? Image.network(
+                          avatarUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (c, e, s) => const Icon(Icons.person, size: 50, color: AppColors.textLight),
+                        )
+                      : const Icon(Icons.person, size: 50, color: AppColors.textLight),
+                ),
               ),
               Positioned(
                 bottom: 0,
@@ -480,6 +524,252 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  void _showEditProfileDialog(String currentName, String currentPhone, String currentCity) {
+    final nameController = TextEditingController(text: currentName);
+    final phoneController = TextEditingController(text: currentPhone == 'لا يوجد' ? '' : currentPhone);
+    final cityController = TextEditingController(text: currentCity == 'غير محدد' ? '' : currentCity);
+    bool isSaving = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Text('تعديل البيانات الشخصية', style: AppTextStyles.headlineSmall),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(labelText: 'الاسم الكامل'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: phoneController,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(labelText: 'رقم الهاتف'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: cityController,
+                    decoration: const InputDecoration(labelText: 'المدينة'),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: isSaving ? null : () async {
+                  setDialogState(() => isSaving = true);
+                  try {
+                    final user = Supabase.instance.client.auth.currentUser;
+                    if (user != null) {
+                      await Supabase.instance.client.from('profiles').update({
+                        'full_name': nameController.text.trim(),
+                        'city': cityController.text.trim(),
+                      }).eq('id', user.id);
+                      
+                      try {
+                        final newPhone = phoneController.text.trim();
+                        if (newPhone.isNotEmpty) {
+                          await Supabase.instance.client.auth.updateUser(
+                            UserAttributes(phone: newPhone),
+                          );
+                        }
+                      } catch (_) {}
+                      
+                      if (mounted) {
+                        await context.read<AuthProvider>().refreshProfile();
+                      }
+                    }
+                    Navigator.pop(ctx);
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('تم تحديث البيانات بنجاح', textAlign: TextAlign.right)),
+                      );
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('حدث خطأ: ${e.toString()}', textAlign: TextAlign.right)),
+                      );
+                    }
+                  } finally {
+                    setDialogState(() => isSaving = false);
+                  }
+                },
+                child: isSaving 
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Text('حفظ'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('إلغاء', style: TextStyle(color: AppColors.textSecondary)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProviderInfoCard() {
+    if (_loadingProvider) {
+      return Container(
+        height: 100,
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+        child: const Center(child: CircularProgressIndicator()),
+      );
+    }
+    final skills = _providerDetails?['skills'] ?? 'لم يتم التحديد';
+    final bio = _providerDetails?['bio'] ?? 'لم يتم التحديد';
+    final hourlyRate = _providerDetails?['hourly_rate']?.toString() ?? '0';
+    final experience = _providerDetails?['experience_years']?.toString() ?? '0';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.backgroundWhite,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                GestureDetector(
+                  onTap: () => _showEditProviderDetailsDialog(skills, bio, hourlyRate, experience),
+                  child: Text('تعديل البيانات المهنية', style: AppTextStyles.accentLink),
+                ),
+                Text('بيانات الحرفي والمهنة', style: AppTextStyles.headlineSmall),
+              ],
+            ),
+          ),
+          _divider(),
+          _infoTile(
+            icon: Icons.handyman_outlined,
+            label: 'التخصصات والمهارات',
+            value: skills,
+          ),
+          _divider(),
+          _infoTile(
+            icon: Icons.description_outlined,
+            label: 'نبذة تعريفية (Bio)',
+            value: bio,
+          ),
+          _divider(),
+          _infoTile(
+            icon: Icons.monetization_on_outlined,
+            label: 'سعر الساعة ج.م',
+            value: '$hourlyRate جنيه',
+          ),
+          _divider(),
+          _infoTile(
+            icon: Icons.calendar_today_outlined,
+            label: 'سنوات الخبرة',
+            value: '$experience سنة',
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditProviderDetailsDialog(String currentSkills, String currentBio, String currentRate, String currentExp) {
+    final skillsCtrl = TextEditingController(text: currentSkills == 'لم يتم التحديد' ? '' : currentSkills);
+    final bioCtrl = TextEditingController(text: currentBio == 'لم يتم التحديد' ? '' : currentBio);
+    final rateCtrl = TextEditingController(text: currentRate);
+    final expCtrl = TextEditingController(text: currentExp);
+    bool isSaving = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Text('تعديل البيانات المهنية', style: AppTextStyles.headlineSmall),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: skillsCtrl,
+                    decoration: const InputDecoration(labelText: 'التخصصات والمهارات (مثال: سباكة، تسليك)'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: bioCtrl,
+                    maxLines: 3,
+                    decoration: const InputDecoration(labelText: 'نبذة تعريفية عنك وعن خبراتك'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: rateCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'سعر الساعة التقديري (جنيه)'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: expCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'سنوات الخبرة'),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: isSaving ? null : () async {
+                  setDialogState(() => isSaving = true);
+                  try {
+                    final user = Supabase.instance.client.auth.currentUser;
+                    if (user != null) {
+                      await SupabaseService.instance.updateProviderProfile(
+                        providerId: user.id,
+                        skills: skillsCtrl.text.trim(),
+                        bio: bioCtrl.text.trim(),
+                        experienceYears: int.tryParse(expCtrl.text.trim()) ?? 0,
+                        hourlyRate: double.tryParse(rateCtrl.text.trim()) ?? 0.0,
+                      );
+                      await _fetchProviderDetails();
+                    }
+                    Navigator.pop(ctx);
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('تم تحديث البيانات المهنية بنجاح', textAlign: TextAlign.right)),
+                      );
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('حدث خطأ: ${e.toString()}', textAlign: TextAlign.right)),
+                      );
+                    }
+                  } finally {
+                    setDialogState(() => isSaving = false);
+                  }
+                },
+                child: isSaving 
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Text('حفظ'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('إلغاء', style: TextStyle(color: AppColors.textSecondary)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildBottomNav(BuildContext context) {
     return HerfaBottomNav(
       currentIndex: 0, // حسابي is index 0
@@ -496,7 +786,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         } else if (index == 1) {
           Navigator.pushReplacementNamed(context, '/chat');
         } else if (index == 2) {
-          Navigator.pushReplacementNamed(context, '/bookings');
+          Navigator.pushReplacementNamed(context, '/requests');
         } else if (index == 3) {
           Navigator.pushReplacementNamed(context, '/prices');
         }

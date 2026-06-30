@@ -14,11 +14,13 @@ import 'screens/customer/booking_confirmation_screen.dart';
 import 'screens/customer/filter_screen.dart';
 import 'screens/customer/map_request_screen.dart';
 import 'screens/customer/provider_profile_screen.dart';
+import 'screens/customer/customer_bookings_list_screen.dart';
 import 'screens/provider/provider_home_screen.dart';
 import 'screens/provider/provider_setup_screen.dart';
 import 'screens/shared/chat_screen.dart';
 import 'screens/shared/price_guide_screen.dart';
 import 'screens/shared/profile_screen.dart';
+import 'screens/customer/portfolio_gallery_screen.dart';
 
 import 'package:intl/date_symbol_data_local.dart';
 
@@ -116,7 +118,8 @@ class _HerfaAppState extends State<HerfaApp> {
         '/provider':  (_) => const ProviderProfileScreen(),
         '/pro-home':  (_) => const ProviderHomeScreen(),
         '/pro-setup': (_) => const ProviderSetupScreen(),
-        '/requests':  (_) => const ProviderHomeScreen(),
+        '/requests':  (_) => const CustomerBookingsListScreen(),
+        '/portfolio': (_) => const PortfolioGalleryScreen(),
       },
       builder: (context, child) => Directionality(
         textDirection: TextDirection.rtl,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 // ─── Herfa Side Drawer ────────────────────────────────────────────────────────
 // Uses ListView to avoid overflow on small screens
@@ -10,6 +11,12 @@ class HerfaDrawer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final supabaseUser = Supabase.instance.client.auth.currentUser;
+    final userName = supabaseUser?.userMetadata?['full_name']
+        ?? supabaseUser?.email?.split('@').first
+        ?? 'مستخدم حرفة';
+    final userEmail = supabaseUser?.email ?? '';
+
     return Drawer(
       backgroundColor: AppColors.backgroundWhite,
       child: SafeArea(
@@ -29,7 +36,7 @@ class HerfaDrawer extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'أحمد محمد',
+                            userName,
                             style: GoogleFonts.cairo(
                               fontSize: 18,
                               fontWeight: FontWeight.w700,
@@ -38,7 +45,7 @@ class HerfaDrawer extends StatelessWidget {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            'ahmed@herfa.com',
+                            userEmail,
                             style: GoogleFonts.cairo(
                               fontSize: 12,
                               color: AppColors.textWhite.withOpacity(0.8),
@@ -86,7 +93,17 @@ class HerfaDrawer extends StatelessWidget {
                       label: 'طلباتي',
                       onTap: () {
                         Navigator.pop(context);
-                        _navigateTo(context, '/requests');
+                        try {
+                          final user = Supabase.instance.client.auth.currentUser;
+                          final role = user?.userMetadata?['role'] ?? 'customer';
+                          if (role == 'provider') {
+                            _navigateTo(context, '/pro-home');
+                          } else {
+                            _navigateTo(context, '/requests');
+                          }
+                        } catch (_) {
+                          _navigateTo(context, '/requests');
+                        }
                       },
                     ),
                     _DrawerItem(
@@ -94,7 +111,17 @@ class HerfaDrawer extends StatelessWidget {
                       label: 'الحجوزات',
                       onTap: () {
                         Navigator.pop(context);
-                        _navigateTo(context, '/bookings');
+                        try {
+                          final user = Supabase.instance.client.auth.currentUser;
+                          final role = user?.userMetadata?['role'] ?? 'customer';
+                          if (role == 'provider') {
+                            _navigateTo(context, '/pro-home');
+                          } else {
+                            _navigateTo(context, '/requests');
+                          }
+                        } catch (_) {
+                          _navigateTo(context, '/requests');
+                        }
                       },
                     ),
                     _DrawerItem(

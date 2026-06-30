@@ -16,6 +16,39 @@ class EmailVerificationScreen extends StatefulWidget {
 class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
   bool _isResending = false;
   bool _isChecking = false;
+  final TextEditingController _otpController = TextEditingController();
+
+  @override
+  void dispose() {
+    _otpController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleVerifyOTP(String email, String token) async {
+    setState(() => _isChecking = true);
+    try {
+      final auth = context.read<AuthProvider>();
+      await auth.verifyOTP(email: email, token: token);
+      if (mounted) {
+        final role = auth.user?.userMetadata?['role'] ?? 'customer';
+        if (role == 'provider') {
+          Navigator.pushNamedAndRemoveUntil(context, '/pro-setup', (route) => false);
+        } else {
+          Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('فشل التحقق من الرمز: ${e.toString()}', textAlign: TextAlign.right)),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isChecking = false);
+      }
+    }
+  }
 
   Future<void> _handleResend(String email) async {
     setState(() => _isResending = true);
@@ -23,6 +56,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
       await Supabase.instance.client.auth.resend(
         type: OtpType.signup,
         email: email,
+        emailRedirectTo: 'herfa://login-callback',
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -43,9 +77,17 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
   }
 
   Future<void> _handleCheckStatus() async {
+    final auth = context.read<AuthProvider>();
+    final email = auth.tempEmail ?? auth.user?.email ?? '';
+    final code = _otpController.text.trim();
+
+    if (code.length == 6) {
+      await _handleVerifyOTP(email, code);
+      return;
+    }
+
     setState(() => _isChecking = true);
     try {
-      final auth = context.read<AuthProvider>();
       await auth.checkVerificationStatus();
 
       if (mounted) {
@@ -78,7 +120,8 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
-    final email = auth.user?.email ?? '';
+    final routeEmail = ModalRoute.of(context)?.settings.arguments as String?;
+    final email = routeEmail ?? auth.tempEmail ?? auth.user?.email ?? '';
 
     return Scaffold(
       backgroundColor: AppColors.backgroundWhite,
@@ -112,7 +155,11 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                         style: AppTextStyles.bodyLarge,
                         textAlign: TextAlign.center,
                       ),
-                      const SizedBox(height: 40),
+                      const SizedBox(height: 24),
+                      Text('أو أدخل رمز التحقق المكون من 6 أرقام:', style: AppTextStyles.bodyMedium),
+                      const SizedBox(height: 12),
+                      _buildPinField(),
+                      const SizedBox(height: 32),
 
                       // Check verification status button
                       GestureDetector(
@@ -311,6 +358,35 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPinField() {
+    return TextField(
+      controller: _otpController,
+      textAlign: TextAlign.center,
+      keyboardType: TextInputType.number,
+      maxLength: 6,
+      style: GoogleFonts.cairo(fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 8),
+      decoration: InputDecoration(
+        hintText: '000000',
+        hintStyle: GoogleFonts.cairo(fontSize: 22, color: AppColors.textLight, letterSpacing: 8),
+        counterText: '',
+        filled: true,
+        fillColor: AppColors.inputFill,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
         ),
       ),
     );

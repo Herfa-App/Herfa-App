@@ -5,8 +5,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/shared_widgets.dart';
 import '../../core/services/supabase_service.dart';
-import '../customer/booking_confirmation_screen.dart';
-import '../shared/chat_screen.dart';
+import 'booking_confirmation_screen.dart';
 
 class CustomerMapProvidersScreen extends StatefulWidget {
   const CustomerMapProvidersScreen({super.key});
@@ -21,8 +20,9 @@ class _CustomerMapProvidersScreenState extends State<CustomerMapProvidersScreen>
   
   List<Map<String, dynamic>> _nearbyProviders = [];
   bool _loading = false;
-  double _userLat = 30.0444;
-  double _userLng = 31.2357;
+  double _userLat = 31.2653; // Default to Port Said coordinates (since user is there)
+  double _userLng = 32.3019;
+  late TransformationController _transformationController;
 
   final List<Map<String, dynamic>> _categories = const [
     {'label': 'دهانات',  'icon': Icons.format_paint_outlined},
@@ -33,10 +33,81 @@ class _CustomerMapProvidersScreenState extends State<CustomerMapProvidersScreen>
     {'label': 'تكييف',   'icon': Icons.ac_unit_outlined},
   ];
 
+  List<Map<String, dynamic>> get _filteredProviders {
+    final filterArgs = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    String categoryLabel = _categories[_selectedCategory]['label'] ?? '';
+    
+    if (filterArgs != null && filterArgs.containsKey('category')) {
+      final filterCat = filterArgs['category'] as String;
+      final idx = _categories.indexWhere((c) => c['label'] == filterCat);
+      if (idx != -1 && idx != _selectedCategory) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() {
+              _selectedCategory = idx;
+              filterArgs.remove('category');
+            });
+          }
+        });
+      }
+    }
+
+    var list = _nearbyProviders.where((p) {
+      final skill = p['skills'] ?? '';
+      return skill.toString().contains(categoryLabel);
+    }).toList();
+
+    if (filterArgs != null) {
+      final minPrice = filterArgs['minPrice'] as double?;
+      final maxPrice = filterArgs['maxPrice'] as double?;
+      if (minPrice != null && maxPrice != null) {
+        list = list.where((p) {
+          final rate = double.tryParse(p['hourly_rate']?.toString() ?? '0') ?? 0.0;
+          return rate >= minPrice && rate <= maxPrice;
+        }).toList();
+      }
+
+      final distIndex = filterArgs['distance'] as int?;
+      if (distIndex != null) {
+        double maxDist = 999.0;
+        if (distIndex == 1) maxDist = 10.0;
+        else if (distIndex == 2) maxDist = 5.0;
+        list = list.where((p) {
+          final dist = double.tryParse(p['distance_km']?.toString() ?? '0') ?? 0.0;
+          return dist <= maxDist;
+        }).toList();
+      }
+
+      final sortIndex = filterArgs['sort'] as int?;
+      if (sortIndex != null) {
+        if (sortIndex == 0) {
+          list.sort((a, b) => (a['distance_km'] ?? 0.0).compareTo(b['distance_km'] ?? 0.0));
+        } else if (sortIndex == 1) {
+          list.sort((a, b) => (b['experience_years'] ?? 0).compareTo(a['experience_years'] ?? 0));
+        } else if (sortIndex == 2) {
+          list.sort((a, b) => (b['rating'] ?? 0.0).compareTo(a['rating'] ?? 0.0));
+        } else if (sortIndex == 3) {
+          list.sort((a, b) => (b['is_available'] == true ? 1 : 0).compareTo(a['is_available'] == true ? 1 : 0));
+        }
+      }
+    }
+
+    return list;
+  }
+
   @override
   void initState() {
     super.initState();
+    _transformationController = TransformationController();
+    // Center transformation matrix on the 1500x1500px map area
+    _transformationController.value = Matrix4.translationValues(-560.0, -560.0, 1.0);
     _fetchLocationAndProviders();
+  }
+
+  @override
+  void dispose() {
+    _transformationController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchLocationAndProviders() async {
@@ -55,10 +126,23 @@ class _CustomerMapProvidersScreenState extends State<CustomerMapProvidersScreen>
       }
     } catch (_) {}
 
+    // Read distance parameter from search filters
+    double maxDist = 150.0; // default to 150 km to find nearby workers
+    final filterArgs = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    if (filterArgs != null) {
+      final distIndex = filterArgs['distance'] as int?;
+      if (distIndex != null) {
+        if (distIndex == 1) maxDist = 10.0;
+        else if (distIndex == 2) maxDist = 5.0;
+        else maxDist = 350.0; // 20+ km
+      }
+    }
+
     try {
       final providers = await SupabaseService.instance.getNearbyProviders(
         userLat: _userLat,
         userLng: _userLng,
+        maxDistanceKm: maxDist,
       );
       setState(() {
         _nearbyProviders = providers;
@@ -74,8 +158,8 @@ class _CustomerMapProvidersScreenState extends State<CustomerMapProvidersScreen>
   @override
   Widget build(BuildContext context) {
     final Map<String, dynamic>? selectedProvider = 
-        _nearbyProviders.isNotEmpty && _selectedProviderIndex < _nearbyProviders.length
-            ? _nearbyProviders[_selectedProviderIndex]
+        _filteredProviders.isNotEmpty && _selectedProviderIndex < _filteredProviders.length
+            ? _filteredProviders[_selectedProviderIndex]
             : null;
 
     return Scaffold(
@@ -88,7 +172,19 @@ class _CustomerMapProvidersScreenState extends State<CustomerMapProvidersScreen>
             child: Stack(
               children: [
                 Positioned.fill(
-                  child: _buildMapBackground(),
+                  child: InteractiveViewer(
+                    transformationController: _transformationController,
+                    maxScale: 3.0,
+                    minScale: 0.5,
+                    boundaryMargin: const EdgeInsets.all(1000),
+                    child: Stack(
+                      children: [
+                        _buildMapBackground(),
+                        if (!_loading)
+                          ..._buildProviderPins(),
+                      ],
+                    ),
+                  ),
                 ),
 
                 // Search + categories header
@@ -105,11 +201,9 @@ class _CustomerMapProvidersScreenState extends State<CustomerMapProvidersScreen>
                   ),
                 ),
 
-                // Map Pins
+                // Loading indicator
                 if (_loading)
-                  const Center(child: CircularProgressIndicator())
-                else
-                  ..._buildProviderPins(),
+                  const Center(child: CircularProgressIndicator()),
 
                 // Provider bottom card
                 if (selectedProvider != null)
@@ -180,9 +274,13 @@ class _CustomerMapProvidersScreenState extends State<CustomerMapProvidersScreen>
   }
 
   Widget _buildMapBackground() {
-    return CustomPaint(
-      painter: _CityMapPainter(),
-      child: Container(),
+    return SizedBox(
+      width: 1500,
+      height: 1500,
+      child: CustomPaint(
+        painter: _CityMapPainter(userLat: _userLat, userLng: _userLng),
+        child: Container(),
+      ),
     );
   }
 
@@ -229,7 +327,10 @@ class _CustomerMapProvidersScreenState extends State<CustomerMapProvidersScreen>
           return Padding(
             padding: const EdgeInsets.only(left: 6),
             child: GestureDetector(
-              onTap: () => setState(() => _selectedCategory = e.key),
+              onTap: () => setState(() {
+                _selectedCategory = e.key;
+                _selectedProviderIndex = 0;
+              }),
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
@@ -267,20 +368,34 @@ class _CustomerMapProvidersScreenState extends State<CustomerMapProvidersScreen>
 
   List<Widget> _buildProviderPins() {
     List<Widget> pins = [];
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
+    final mapWidth = 1500.0;
+    final mapHeight = 1500.0;
 
-    for (int i = 0; i < _nearbyProviders.length; i++) {
-      // Create mock screen location coordinate offsets spread out from center
-      double top = (screenHeight * 0.3) + (i * 75) % 250;
-      double left = (screenWidth * 0.25) + (i * 95) % (screenWidth * 0.5);
+    final list = _filteredProviders;
+    final centerLat = _userLat;
+    final centerLng = _userLng;
+
+    for (int i = 0; i < list.length; i++) {
+      final p = list[i];
+      final lat = double.tryParse(p['latitude']?.toString() ?? '') ?? centerLat;
+      final lng = double.tryParse(p['longitude']?.toString() ?? '') ?? centerLng;
+
+      // Coordinate offset projection (approx 1 degree = 6000 logical map pixels)
+      final dLat = lat - centerLat;
+      final dLng = lng - centerLng;
+
+      double left = (mapWidth * 0.5) + (dLng * 8000.0);
+      double top = (mapHeight * 0.5) - (dLat * 8000.0); // Y-axis is inverted
+
+      left = left.clamp(60.0, mapWidth - 60.0);
+      top = top.clamp(60.0, mapHeight - 60.0);
 
       final isSelected = _selectedProviderIndex == i;
 
       pins.add(
         Positioned(
-          top: top,
-          left: left,
+          top: top - (isSelected ? 24 : 19),
+          left: left - (isSelected ? 24 : 19),
           child: GestureDetector(
             onTap: () {
               setState(() {
@@ -360,108 +475,117 @@ class _CustomerMapProvidersScreenState extends State<CustomerMapProvidersScreen>
               ),
             ),
 
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: AppColors.accent.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: AppColors.accent.withOpacity(0.3)),
+            GestureDetector(
+              onTap: () {
+                Navigator.pushNamed(context, '/provider', arguments: provider);
+              },
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.accent.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppColors.accent.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.star, color: AppColors.starColor, size: 14),
+                        const SizedBox(width: 3),
+                        Text(rating, style: AppTextStyles.titleSmall.copyWith(color: AppColors.textPrimary)),
+                      ],
+                    ),
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
+  
+                  const Spacer(),
+  
+                  Expanded(
+                    flex: 3,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          name,
+                          style: AppTextStyles.headlineSmall.copyWith(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        Text(
+                          bio,
+                          style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textDirection: TextDirection.rtl,
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Text('$distance كم', style: AppTextStyles.bodySmall),
+                            const SizedBox(width: 3),
+                            const Icon(Icons.location_on_outlined, size: 12, color: AppColors.textLight),
+                            const SizedBox(width: 8),
+                            const Text('●', style: TextStyle(color: AppColors.greenAvailable, fontSize: 10)),
+                            const SizedBox(width: 3),
+                            Text(
+                              'متاح الآن',
+                              style: AppTextStyles.bodySmall.copyWith(color: AppColors.greenAvailable),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+  
+                  const SizedBox(width: 10),
+  
+                  Stack(
                     children: [
-                      const Icon(Icons.star, color: AppColors.starColor, size: 14),
-                      const SizedBox(width: 3),
-                      Text(rating, style: AppTextStyles.titleSmall.copyWith(color: AppColors.textPrimary)),
+                      Container(
+                        width: 72,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          color: AppColors.backgroundGrey,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: provider['avatar_url'] != null
+                              ? Image.network(
+                                  provider['avatar_url'],
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (c, e, s) => const Icon(Icons.person, size: 40, color: AppColors.textLight),
+                                )
+                              : const Icon(Icons.person, size: 40, color: AppColors.textLight),
+                        ),
+                      ),
+                      Positioned(
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 3),
+                          decoration: const BoxDecoration(
+                            color: AppColors.accent,
+                            borderRadius: BorderRadius.only(
+                              bottomLeft: Radius.circular(12),
+                              bottomRight: Radius.circular(12),
+                            ),
+                          ),
+                          child: Center(
+                            child: Text(
+                              'ممتاز',
+                              style: GoogleFonts.cairo(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.textWhite),
+                            ),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
-                ),
-
-                const Spacer(),
-
-                Expanded(
-                  flex: 3,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        name,
-                        style: AppTextStyles.headlineSmall.copyWith(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      Text(
-                        bio,
-                        style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textDirection: TextDirection.rtl,
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          Text('$distance كم', style: AppTextStyles.bodySmall),
-                          const SizedBox(width: 3),
-                          const Icon(Icons.location_on_outlined, size: 12, color: AppColors.textLight),
-                          const SizedBox(width: 8),
-                          const Text('●', style: TextStyle(color: AppColors.greenAvailable, fontSize: 10)),
-                          const SizedBox(width: 3),
-                          Text(
-                            'متاح الآن',
-                            style: AppTextStyles.bodySmall.copyWith(color: AppColors.greenAvailable),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(width: 10),
-
-                Stack(
-                  children: [
-                    Container(
-                      width: 72,
-                      height: 80,
-                      decoration: BoxDecoration(
-                        color: AppColors.backgroundGrey,
-                        borderRadius: BorderRadius.circular(12),
-                        image: provider['avatar_url'] != null
-                            ? DecorationImage(image: NetworkImage(provider['avatar_url']), fit: BoxFit.cover)
-                            : null,
-                      ),
-                      child: provider['avatar_url'] == null
-                          ? const Icon(Icons.person, size: 40, color: AppColors.textLight)
-                          : null,
-                    ),
-                    Positioned(
-                      bottom: 0,
-                      left: 0,
-                      right: 0,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 3),
-                        decoration: const BoxDecoration(
-                          color: AppColors.accent,
-                          borderRadius: BorderRadius.only(
-                            bottomLeft: Radius.circular(12),
-                            bottomRight: Radius.circular(12),
-                          ),
-                        ),
-                        child: Center(
-                          child: Text(
-                            'ممتاز',
-                            style: GoogleFonts.cairo(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.textWhite),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+                ],
+              ),
             ),
 
             const SizedBox(height: 14),
@@ -525,7 +649,7 @@ class _CustomerMapProvidersScreenState extends State<CustomerMapProvidersScreen>
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => const BookingConfirmationScreen(),
+                          builder: (_) => BookingConfirmationScreen(),
                           settings: RouteSettings(arguments: provider),
                         ),
                       );
@@ -576,7 +700,7 @@ class _CustomerMapProvidersScreenState extends State<CustomerMapProvidersScreen>
             children: [
               _navItem(Icons.map_outlined, 'الرئيسية', true, () {}),
               _navItem(Icons.receipt_long_outlined, 'طلباتي', false, () {
-                Navigator.pushReplacementNamed(context, '/bookings');
+                Navigator.pushReplacementNamed(context, '/requests');
               }),
               _navItemWithBadge(Icons.chat_bubble_outline, 'الرسائل', false, () {
                 Navigator.pushReplacementNamed(context, '/chat');
@@ -653,33 +777,119 @@ class _CustomerMapProvidersScreenState extends State<CustomerMapProvidersScreen>
 }
 
 class _CityMapPainter extends CustomPainter {
+  final double userLat;
+  final double userLng;
+
+  const _CityMapPainter({this.userLat = 31.2653, this.userLng = 32.3019});
+
   @override
   void paint(Canvas canvas, Size size) {
-    final bgPaint = Paint()..color = const Color(0xFFE8ECEF);
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), bgPaint);
+    final cx = size.width / 2;
+    final cy = size.height / 2;
 
-    final roadPaint = Paint()
-      ..color = const Color(0xFFFFFFFF)
-      ..strokeWidth = 14
-      ..style = PaintingStyle.stroke;
+    // ── Background (land colour)
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Paint()..color = const Color(0xFFF0EDE6),
+    );
 
-    final roadBorderPaint = Paint()
-      ..color = const Color(0xFFD0D6DC)
-      ..strokeWidth = 16
-      ..style = PaintingStyle.stroke;
+    // ── Suez Canal / water strip (Port Said is at canal mouth)
+    final waterPaint = Paint()..color = const Color(0xFF9EC8E8);
+    canvas.drawRect(Rect.fromLTWH(cx + 220, 0, 90, size.height), waterPaint);
+    // Mediterranean sea at top
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, cy - 300), Paint()..color = const Color(0xFF7FB8D8));
+    // Beach / shoreline
+    canvas.drawRect(Rect.fromLTWH(0, cy - 300, size.width, 20), Paint()..color = const Color(0xFFD4C89A));
 
-    // Draw simple grid map layout representing street lines
-    void drawStreet(Offset p1, Offset p2) {
-      canvas.drawLine(p1, p2, roadBorderPaint);
-      canvas.drawLine(p1, p2, roadPaint);
+    // ── Block builder helper
+    void block(double x, double y, double w, double h, Color c) {
+      final rr = RRect.fromRectAndRadius(
+        Rect.fromLTWH(x, y, w, h), const Radius.circular(4));
+      canvas.drawRRect(rr, Paint()..color = c);
     }
 
-    drawStreet(Offset(0, size.height * 0.25), Offset(size.width, size.height * 0.35));
-    drawStreet(Offset(0, size.height * 0.65), Offset(size.width, size.height * 0.55));
-    drawStreet(Offset(size.width * 0.3, 0), Offset(size.width * 0.4, size.height));
-    drawStreet(Offset(size.width * 0.7, 0), Offset(size.width * 0.75, size.height));
+    // ── City blocks (residential/commercial)
+    const blockA = Color(0xFFD9D0C5);
+    const blockB = Color(0xFFCFC6BC);
+    const parkC  = Color(0xFFB8D8B0);
+
+    // Grid of city blocks around centre
+    for (int row = -4; row <= 4; row++) {
+      for (int col = -6; col <= 6; col++) {
+        final bx = cx + col * 110.0;
+        final by = cy + row * 110.0;
+        if (by < cy - 290) continue; // below sea
+        if ((col == 2 || col == 3) && row.abs() < 4) continue; // leave canal open
+        final isGreen = (row.abs() == 2 && col.abs() == 2);
+        block(bx - 40, by - 40, 76, 76, isGreen ? parkC : (col.isOdd ? blockA : blockB));
+      }
+    }
+
+    // ── Roads (border then fill)
+    final borderP = Paint()
+      ..color = const Color(0xFFB0A898)
+      ..strokeWidth = 22
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    final roadP = Paint()
+      ..color = const Color(0xFFFFFDF8)
+      ..strokeWidth = 16
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    final mainRoadP = Paint()
+      ..color = const Color(0xFFFFF8E8)
+      ..strokeWidth = 24
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    final mainBorderP = Paint()
+      ..color = const Color(0xFFE8C87A)
+      ..strokeWidth = 28
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    void road(Offset a, Offset b, {bool main = false}) {
+      canvas.drawLine(a, b, main ? mainBorderP : borderP);
+      canvas.drawLine(a, b, main ? mainRoadP : roadP);
+    }
+
+    // Horizontal roads (grid)
+    for (int r = -4; r <= 4; r++) {
+      final y = cy + r * 110.0;
+      if (y < cy - 285) continue;
+      road(Offset(0, y), Offset(size.width, y), main: r == 0 || r == -2);
+    }
+    // Vertical roads (grid)
+    for (int c = -6; c <= 6; c++) {
+      final x = cx + c * 110.0;
+      road(Offset(x, cy - 285), Offset(x, size.height), main: c == 0 || c == -3);
+    }
+
+    // ── User location indicator (blue pulsing circle)
+    // User is always at canvas centre
+    canvas.drawCircle(Offset(cx, cy), 24, Paint()..color = const Color(0x330A6EBD));
+    canvas.drawCircle(Offset(cx, cy), 12, Paint()..color = const Color(0xFF1A7FCF));
+    canvas.drawCircle(Offset(cx, cy), 7, Paint()..color = Colors.white);
+    canvas.drawCircle(
+      Offset(cx, cy), 6,
+      Paint()..color = const Color(0xFF1A7FCF),
+    );
+
+    // ── Port Said label
+    final tp = TextPainter(
+      text: const TextSpan(
+        text: 'بورسعيد',
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF4A4040),
+        ),
+      ),
+      textDirection: TextDirection.rtl,
+    )..layout();
+    tp.paint(canvas, Offset(cx - tp.width / 2, cy + 30));
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _CityMapPainter old) =>
+      old.userLat != userLat || old.userLng != userLng;
 }

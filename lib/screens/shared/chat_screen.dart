@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -47,6 +48,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   String? _targetName;
   String? _currentUserId;
 
+  List<Map<String, dynamic>> _localMessages = [];
+  bool _isAvailable = true;
+  Timer? _pollingTimer;
+
   @override
   void initState() {
     super.initState();
@@ -59,18 +64,62 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-    _targetUserId = args?['target_user_id'] ?? 'dbca732c-7b3b-4c07-b2f5-b98a12bc3abc'; // fallback default target
-    _targetName = args?['target_name'] ?? 'أحمد محمد (متاح)';
+    _targetUserId = args?['target_user_id'] as String?;
+    _targetName = args?['target_name'] as String? ?? 'محادثة';
 
     if (_currentUserId != null && _targetUserId != null) {
       _conversationId = _currentUserId!.compareTo(_targetUserId!) < 0
           ? '${_currentUserId}_$_targetUserId'
           : '${_targetUserId}_$_currentUserId';
+      
+      _fetchTargetAvailability();
+      _fetchMessagesDirectly();
+      _startPolling();
     }
+  }
+
+  Future<void> _fetchTargetAvailability() async {
+    if (_targetUserId == null) return;
+    try {
+      final res = await SupabaseService.instance.client
+          .from('providers')
+          .select('is_available')
+          .eq('id', _targetUserId!)
+          .maybeSingle();
+      if (res != null && res['is_available'] != null && mounted) {
+        setState(() {
+          _isAvailable = res['is_available'] as bool;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _fetchMessagesDirectly() async {
+    if (_conversationId == null) return;
+    try {
+      final res = await SupabaseService.instance.client
+          .from('messages')
+          .select()
+          .eq('conversation_id', _conversationId!)
+          .order('created_at', ascending: true);
+      if (res != null && mounted) {
+        setState(() {
+          _localMessages = List<Map<String, dynamic>>.from(res);
+        });
+      }
+    } catch (_) {}
+  }
+
+  void _startPolling() {
+    _pollingTimer?.cancel();
+    _pollingTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
+      _fetchMessagesDirectly();
+    });
   }
 
   @override
   void dispose() {
+    _pollingTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _textController.dispose();
     _scrollController.dispose();
@@ -143,6 +192,31 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       );
     }
 
+    if (_targetUserId == null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF5F6FA),
+        body: SafeArea(
+          child: Column(
+            children: [
+              _buildHeader(context),
+              const Expanded(
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.chat_bubble_outline, size: 60, color: Colors.grey),
+                      SizedBox(height: 16),
+                      Text('اختر حرفيًا لبدء المحادثة', style: TextStyle(color: Colors.grey, fontSize: 16)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6FA),
       resizeToAvoidBottomInset: true,
@@ -159,15 +233,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       ? SupabaseService.instance.streamMessages(_conversationId!)
                       : null,
                   builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    if (snapshot.hasError) {
-                      return Center(child: Text('حدث خطأ أثناء تحميل الرسائل: ${snapshot.error}'));
+                    // Update local messages cache when stream receives new database rows
+                    if (snapshot.hasData && snapshot.data != null) {
+                      _localMessages = snapshot.data!;
                     }
 
-                    final data = snapshot.data ?? [];
-                    final messages = data.map((m) {
+                    final messages = _localMessages.map((m) {
                       final isOutgoing = m['sender_id'] == _currentUserId;
                       final typeStr = m['type'] ?? 'text';
                       final type = typeStr == 'image'
@@ -187,6 +258,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     }).toList();
 
                     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+
+                    if (messages.isEmpty && snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
 
                     return ListView.builder(
                       controller: _scrollController,
@@ -247,14 +322,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   Container(
                     width: 8,
                     height: 8,
-                    decoration: const BoxDecoration(
-                      color: AppColors.greenAvailable,
+                    decoration: BoxDecoration(
+                      color: _isAvailable ? AppColors.greenAvailable : Colors.grey,
                       shape: BoxShape.circle,
                     ),
                   ),
                   const SizedBox(width: 4),
-                  Text('نشط الآن',
-                      style: AppTextStyles.bodySmall.copyWith(color: AppColors.greenAvailable)),
+                  Text(_isAvailable ? 'نشط الآن' : 'غير متصل حالياً',
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: _isAvailable ? AppColors.greenAvailable : Colors.grey,
+                      )),
                 ],
               ),
             ],
@@ -340,62 +417,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildStatusBanner() {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF3E0),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.accent.withOpacity(0.3)),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: AppColors.accent,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(Icons.local_shipping, color: AppColors.textWhite, size: 22),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: AppColors.accent.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text('12 دقيقة',
-                          style: GoogleFonts.cairo(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.accent)),
-                    ),
-                    const SizedBox(width: 8),
-                    Text('الحرفي في الطريق',
-                        style: AppTextStyles.titleSmall, textDirection: TextDirection.rtl),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: 0.65,
-              backgroundColor: AppColors.accent.withOpacity(0.2),
-              color: AppColors.accent,
-              minHeight: 6,
-            ),
-          ),
-        ],
-      ),
-    );
+    return const SizedBox.shrink();
   }
 
   Widget _buildDateSeparator(String label) {

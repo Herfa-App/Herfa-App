@@ -99,7 +99,7 @@ class _FilterScreenState extends State<FilterScreen> {
                                 fontWeight: FontWeight.w700,
                                 color: AppColors.accent),
                           ),
-                          Text('نطاق السعر (ريال)',
+                          Text('نطاق السعر (جنيه)',
                               style: AppTextStyles.titleSmall),
                         ],
                       ),
@@ -115,12 +115,24 @@ class _FilterScreenState extends State<FilterScreen> {
                       _buildDistanceChips(),
                       const SizedBox(height: 28),
                       GestureDetector(
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) =>
-                                  const CustomerMapProvidersScreen()),
-                        ),
+                        onTap: () {
+                          final selectedCategoryLabel = _specs[_selectedSpec];
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              settings: RouteSettings(
+                                arguments: {
+                                  'category': selectedCategoryLabel,
+                                  'sort': _selectedSort,
+                                  'minPrice': _minPrice,
+                                  'maxPrice': _maxPrice,
+                                  'distance': _selectedDistance,
+                                },
+                              ),
+                              builder: (_) => const CustomerMapProvidersScreen(),
+                            ),
+                          );
+                        },
                         child: Container(
                           width: double.infinity,
                           padding: const EdgeInsets.symmetric(vertical: 16),
